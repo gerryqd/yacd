@@ -27,7 +27,7 @@ VERSION := $(shell git describe --tags --always --dirty 2>$(NULL_DEVICE) || echo
 COMMIT := $(shell git rev-parse --short HEAD 2>$(NULL_DEVICE) || echo "unknown")
 
 # Build flags
-LDFLAGS := -ldflags "-X github.com/gerrywa/yacd/cmd.GitCommit=$(COMMIT)"
+LDFLAGS := -ldflags "-X github.com/gerryqd/yacd/cmd.GitCommit=$(COMMIT)"
 
 .PHONY: all build clean test test-coverage test-verbose lint fmt vet help run install
 
@@ -93,7 +93,7 @@ lint:
 # Install to GOPATH/bin
 install:
 	@echo "Installing $(BINARY_NAME)..."
-	$(GO) install .
+	$(GO) install $(LDFLAGS) .
 
 # Run program with sample usage
 run:
@@ -123,7 +123,7 @@ benchmark:
 deps:
 	@echo "Generating dependency graph..."
 	@which godepgraph > /dev/null || (echo "Please install godepgraph first: go install golang.org/x/tools/cmd/godepgraph@latest" && exit 1)
-	godepgraph -s github.com/gerrywa/yacd | dot -Tpng -o $(BUILD_DIR)/deps.png
+	godepgraph -s github.com/gerryqd/yacd | dot -Tpng -o $(BUILD_DIR)/deps.png
 
 # Tidy Go modules
 mod-tidy:

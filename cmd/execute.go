@@ -4,57 +4,38 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
-	"github.com/gerrywa/yacd/generator"
-	"github.com/gerrywa/yacd/parser"
-	"github.com/gerrywa/yacd/types"
-	"github.com/gerrywa/yacd/utils/errorutil"
-	"github.com/gerrywa/yacd/utils/pathutil"
+	"github.com/gerryqd/yacd/generator"
+	"github.com/gerryqd/yacd/parser"
+	"github.com/gerryqd/yacd/types"
+	"github.com/gerryqd/yacd/utils/errorutil"
+	"github.com/gerryqd/yacd/utils/pathutil"
 )
 
-// ExecuteGeneration executes the main generation logic
-func ExecuteGeneration(options types.ParseOptions, reader io.Reader) error {
-	if options.Verbose {
-		printExecutionInfo(options)
-	}
-
-	// Create parser
-	p, err := parser.NewParser(options)
-	if err != nil {
-		return errorutil.WrapError(err, "failed to create parser")
-	}
-
+// ExecuteGeneration executes the generation process with the given options and reader
+func ExecuteGeneration(options *types.ParseOptions, reader io.Reader) error {
 	// Parse make log
-	entries, err := p.ParseMakeLog(reader)
+	entries, err := parser.ParseMakeLog(reader, options.Verbose)
 	if err != nil {
-		return errorutil.WrapParseError(err, "make log")
+		return errorutil.WrapParseError(err, "failed to parse make log")
 	}
-
-	if options.Verbose {
-		fmt.Printf("Parsing completed, found %d compilation entries\n", len(entries))
-	}
-
-	// Create generator
-	g := generator.NewGenerator(options)
 
 	// Generate compilation database
-	compileDB, err := g.GenerateCompileCommands(entries)
-	if err != nil {
-		return errorutil.WrapGenerationError(err, "compilation database")
+	compilationDB, warningCount := generator.GenerateCompilationDatabase(entries, options)
+
+	// Write to file
+	if err := generator.WriteCompilationDatabase(compilationDB, options.OutputFile); err != nil {
+		return errorutil.WrapFileError(err, "write compilation database to", options.OutputFile)
 	}
 
-	// Validate compilation database
-	if err := g.ValidateCompileDB(compileDB); err != nil {
-		return errorutil.WrapValidationError(err, "compilation database")
+	// Print summary with improved formatting
+	fmt.Println(strings.Repeat("-", 50))
+	if warningCount > 0 {
+		fmt.Printf("\033[33mWarning: %d entries have non-existent source files\033[0m\n", warningCount)
 	}
-
-	// Write output file
-	if err := g.WriteToFile(compileDB, options.OutputFile); err != nil {
-		return errorutil.WrapFileError(err, "write", options.OutputFile)
-	}
-
-	fmt.Printf("Successfully generated %s with %d compilation entries\n",
-		options.OutputFile, len(compileDB))
+	fmt.Printf("\033[32mSuccessfully generated %s with %d entries\033[0m\n", options.OutputFile, len(compilationDB))
+	fmt.Println(strings.Repeat("-", 50))
 	return nil
 }
 
@@ -69,16 +50,25 @@ func PrepareReader(options types.ParseOptions, stdinHasData bool) (io.Reader, fu
 			fmt.Printf("Executing make command: %s\n", options.MakeCommand)
 		}
 
-		var err error
-		reader, err = ExecuteMakeCommand(options.MakeCommand)
+		cmd, err := ExecuteMakeCommand(options.MakeCommand)
 		if err != nil {
-			return nil, nil, errorutil.WrapExecutionError(err, "make command")
+			return nil, nil, errorutil.WrapExecutionError(err, options.MakeCommand)
 		}
 
+		// Execute command and get stdout reader
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			return nil, nil, errorutil.WrapExecutionError(err, options.MakeCommand)
+		}
+
+		// Start command
+		if err := cmd.Start(); err != nil {
+			return nil, nil, errorutil.WrapExecutionError(err, options.MakeCommand)
+		}
+
+		reader = stdout
 		cleanup = func() {
-			if closer, ok := reader.(io.Closer); ok {
-				closer.Close()
-			}
+			cmd.Wait() // Wait for command to finish
 		}
 	} else if stdinHasData {
 		// Handle stdin input
@@ -133,21 +123,4 @@ func PrepareOptions(inputFile, outputFile, makeCommand, baseDir string,
 	}
 
 	return options, nil
-}
-
-// printExecutionInfo prints execution information in verbose mode
-func printExecutionInfo(options types.ParseOptions) {
-	fmt.Printf("yacd - Yet Another CompileDB\n")
-	if options.MakeCommand != "" {
-		fmt.Printf("Make command: %s\n", options.MakeCommand)
-	} else if options.InputFile == "" {
-		fmt.Printf("Input source: stdin\n")
-	} else {
-		fmt.Printf("Input file: %s\n", options.InputFile)
-	}
-	fmt.Printf("Output file: %s\n", options.OutputFile)
-	if options.UseRelativePaths {
-		fmt.Printf("Using relative paths, base directory: %s\n", options.BaseDir)
-	}
-	fmt.Printf("Starting to parse...\n")
 }

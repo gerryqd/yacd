@@ -1,4 +1,4 @@
-module github.com/gerrywa/yacd
+module github.com/gerryqd/yacd
 
 go 1.23
 

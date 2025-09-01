@@ -40,7 +40,7 @@ func TestValidateInputSources(t *testing.T) {
 			makeCommand:   "",
 			stdinHasData:  false,
 			expectError:   true,
-			errorContains: "either input file (-i), make command (-n), or stdin pipe must be specified",
+			errorContains: "no input source provided, please specify one of: -i/--input, -n/--dry-run, or provide input via stdin",
 		},
 		{
 			name:          "Multiple input sources - file and make command",
@@ -48,7 +48,7 @@ func TestValidateInputSources(t *testing.T) {
 			makeCommand:   "make clean all",
 			stdinHasData:  false,
 			expectError:   true,
-			errorContains: "only one input source is allowed",
+			errorContains: "multiple input sources provided, please specify only one of: -i/--input, -n/--dry-run, or stdin",
 		},
 		{
 			name:          "Multiple input sources - file and stdin",
@@ -56,7 +56,7 @@ func TestValidateInputSources(t *testing.T) {
 			makeCommand:   "",
 			stdinHasData:  true,
 			expectError:   true,
-			errorContains: "only one input source is allowed",
+			errorContains: "multiple input sources provided, please specify only one of: -i/--input, -n/--dry-run, or stdin",
 		},
 		{
 			name:          "Multiple input sources - make command and stdin",
@@ -64,7 +64,7 @@ func TestValidateInputSources(t *testing.T) {
 			makeCommand:   "make clean all",
 			stdinHasData:  true,
 			expectError:   true,
-			errorContains: "only one input source is allowed",
+			errorContains: "multiple input sources provided, please specify only one of: -i/--input, -n/--dry-run, or stdin",
 		},
 		{
 			name:          "All three input sources specified",
@@ -72,7 +72,7 @@ func TestValidateInputSources(t *testing.T) {
 			makeCommand:   "make clean all",
 			stdinHasData:  true,
 			expectError:   true,
-			errorContains: "only one input source is allowed",
+			errorContains: "multiple input sources provided, please specify only one of: -i/--input, -n/--dry-run, or stdin",
 		},
 	}
 

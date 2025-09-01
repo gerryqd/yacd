@@ -120,5 +120,5 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	defer cleanup()
 
 	// Execute generation
-	return ExecuteGeneration(options, reader)
+	return ExecuteGeneration(&options, reader)
 }

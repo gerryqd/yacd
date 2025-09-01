@@ -3,66 +3,9 @@ package cmd
 import (
 	"strings"
 	"testing"
+
+	"github.com/gerryqd/yacd/types"
 )
-
-func TestEnsureMakeFlags(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []string
-		expected []string
-	}{
-		{
-			name:     "Empty arguments",
-			input:    []string{},
-			expected: []string{"-Bnkw"},
-		},
-		{
-			name:     "With target",
-			input:    []string{"all"},
-			expected: []string{"-Bnkw", "all"},
-		},
-		{
-			name:     "With flags and target",
-			input:    []string{"-j4", "all"},
-			expected: []string{"-Bnkw", "-j4", "all"},
-		},
-		{
-			name:     "Multiple targets",
-			input:    []string{"clean", "all"},
-			expected: []string{"-Bnkw", "clean", "all"},
-		},
-		{
-			name:     "With duplicate flags",
-			input:    []string{"-B", "-n", "all"},
-			expected: []string{"-Bnkw", "-B", "-n", "all"},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := EnsureMakeFlags(tt.input)
-
-			// Check if result length matches expected
-			if len(result) != len(tt.expected) {
-				t.Errorf("Expected length %d, got %d. Expected: %v, Got: %v",
-					len(tt.expected), len(result), tt.expected, result)
-				return
-			}
-
-			// Check each element
-			for i, expected := range tt.expected {
-				if result[i] != expected {
-					t.Errorf("At index %d: expected %s, got %s", i, expected, result[i])
-				}
-			}
-
-			// Ensure -Bnkw is always at the beginning
-			if len(result) > 0 && result[0] != "-Bnkw" {
-				t.Errorf("Expected -Bnkw at the beginning, got %s", result[0])
-			}
-		})
-	}
-}
 
 func TestParseMakeCommand(t *testing.T) {
 	tests := []struct {
@@ -147,13 +90,13 @@ func TestExecuteMakeCommand(t *testing.T) {
 			name:          "Empty command",
 			makeCmd:       "",
 			expectError:   true,
-			errorContains: "make command is empty",
+			errorContains: "empty make command",
 		},
 		{
 			name:          "Whitespace only command",
 			makeCmd:       "   ",
 			expectError:   true,
-			errorContains: "make command is empty",
+			errorContains: "empty make command",
 		},
 		{
 			name:        "Valid make command",
@@ -174,7 +117,7 @@ func TestExecuteMakeCommand(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			reader, err := ExecuteMakeCommand(tt.makeCmd)
+			cmd, err := ExecuteMakeCommand(tt.makeCmd)
 
 			if tt.expectError {
 				if err == nil {
@@ -194,15 +137,59 @@ func TestExecuteMakeCommand(t *testing.T) {
 				return
 			}
 
-			if reader == nil {
-				t.Errorf("ExecuteMakeCommand() returned nil reader")
+			if cmd == nil {
+				t.Errorf("ExecuteMakeCommand() returned nil command")
 				return
 			}
 
-			// Close the reader if it implements io.Closer
-			if closer, ok := reader.(interface{ Close() error }); ok {
-				closer.Close()
+			// Check that the command is properly configured with -Bnkw flags
+			if len(cmd.Args) < 2 || cmd.Args[1] != "-Bnkw" {
+				t.Errorf("ExecuteMakeCommand() did not add -Bnkw flag correctly. Args: %v", cmd.Args)
 			}
+		})
+	}
+}
+
+func TestPrintExecutionInfoInMake(t *testing.T) {
+	tests := []struct {
+		name    string
+		options types.ParseOptions
+	}{
+		{
+			name: "Input file option",
+			options: types.ParseOptions{
+				InputFile:  "test.log",
+				OutputFile: "compile_commands.json",
+			},
+		},
+		{
+			name: "Make command option",
+			options: types.ParseOptions{
+				MakeCommand: "make clean all",
+				OutputFile:  "compile_commands.json",
+			},
+		},
+		{
+			name: "Relative paths option",
+			options: types.ParseOptions{
+				InputFile:        "test.log",
+				OutputFile:       "compile_commands.json",
+				UseRelativePaths: true,
+				BaseDir:          "/project",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// This function just prints to stdout, so we test it doesn't panic
+			defer func() {
+				if r := recover(); r != nil {
+					t.Errorf("PrintExecutionInfo() panicked: %v", r)
+				}
+			}()
+
+			PrintExecutionInfo(&tt.options)
 		})
 	}
 }

@@ -1,7 +1,7 @@
 # yacd - Yet Another CompileDB
 
-[![CI](https://github.com/gerrywa/yacd/workflows/CI/badge.svg)](https://github.com/gerrywa/yacd/actions)
-[![Go Report Card](https://goreportcard.com/badge/github.com/gerrywa/yacd)](https://goreportcard.com/report/github.com/gerrywa/yacd)
+[![CI](https://github.com/gerryqd/yacd/workflows/CI/badge.svg)](https://github.com/gerryqd/yacd/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/gerryqd/yacd)](https://goreportcard.com/report/github.com/gerryqd/yacd)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 yacd (Yet Another CompileDB) is a command-line tool for generating `compile_commands.json` files from make logs of makefile-based projects. This tool is specifically designed for C/C++ projects and is particularly useful for embedded development and cross-compilation environments.
@@ -31,7 +31,7 @@ This tool was heavily implemented with the participation of Qoder (https://qoder
 Ensure you have Go 1.23 or higher installed.
 
 ```bash
-git clone https://github.com/gerrywa/yacd.git
+git clone https://github.com/gerryqd/yacd.git
 cd yacd
 go build -o yacd .
 ```
@@ -39,7 +39,7 @@ go build -o yacd .
 ### Using Go Install
 
 ```bash
-go install github.com/gerrywa/yacd@latest
+go install github.com/gerryqd/yacd@latest
 ```
 
 ### Using Makefile
@@ -312,4 +312,4 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 
 If you find this project useful, please give us a ⭐ star!
 
-For any questions or suggestions, feel free to [submit an issue](https://github.com/gerrywa/yacd/issues).
+For any questions or suggestions, feel free to [submit an issue](https://github.com/gerryqd/yacd/issues).

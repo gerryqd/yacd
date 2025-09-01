@@ -1,52 +1,53 @@
 package cmd
 
 import (
-	"io"
+	"fmt"
 	"os/exec"
 	"strings"
 
-	"github.com/gerrywa/yacd/utils/errorutil"
+	"github.com/gerryqd/yacd/types"
+	"github.com/gerryqd/yacd/utils/errorutil"
 )
 
-// ExecuteMakeCommand executes the make command with -Bnkw flags and returns the output as a reader
-func ExecuteMakeCommand(makeCmd string) (io.Reader, error) {
-	// Parse the make command
-	cmdParts := strings.Fields(makeCmd)
-	if len(cmdParts) == 0 {
-		return nil, errorutil.CreateEmptyInputError("make command")
+// ExecuteMakeCommand executes a make command with -Bnkw flags
+func ExecuteMakeCommand(makeCmd string) (*exec.Cmd, error) {
+	// Split the command into parts
+	parts := strings.Fields(makeCmd)
+	if len(parts) == 0 {
+		return nil, errorutil.NewError("empty make command")
 	}
 
-	// Extract the make executable and arguments
-	makeExe := cmdParts[0]
-	makeArgs := cmdParts[1:]
-
-	// Add -Bnkw flags if not already present
-	args := EnsureMakeFlags(makeArgs)
-
-	// Create the command
-	cmd := exec.Command(makeExe, args...)
-
-	// Set up stdout pipe
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return nil, errorutil.WrapError(err, "failed to create stdout pipe")
+	// Ensure the command starts with "make"
+	if parts[0] != "make" {
+		return nil, errorutil.NewError("make command must start with 'make'")
 	}
 
-	// Start the command
-	if err := cmd.Start(); err != nil {
-		return nil, errorutil.WrapError(err, "failed to start make command")
-	}
+	// Add -Bnkw flags at the beginning (after "make")
+	args := append([]string{"make", "-Bnkw"}, parts[1:]...)
 
-	return stdoutPipe, nil
+	// Create command
+	cmd := exec.Command(args[0], args[1:]...)
+	return cmd, nil
 }
 
-// EnsureMakeFlags adds -Bnkw flags to make arguments
-func EnsureMakeFlags(args []string) []string {
-	// Always add -Bnkw flags at the beginning
-	result := []string{"-Bnkw"}
+// PrintExecutionInfo prints execution information based on the input source
+func PrintExecutionInfo(options *types.ParseOptions) {
+	fmt.Println("yacd - Yet Another CompileDB")
 
-	// Add original arguments
-	result = append(result, args...)
+	// Print input source information
+	if options.InputFile != "" {
+		fmt.Printf("Input file: %s\n", options.InputFile)
+	} else if options.MakeCommand != "" {
+		fmt.Printf("Make command: %s\n", options.MakeCommand)
+	} else {
+		fmt.Println("Input source: stdin")
+	}
 
-	return result
+	fmt.Printf("Output file: %s\n", options.OutputFile)
+
+	if options.UseRelativePaths {
+		fmt.Printf("Using relative paths, base directory: %s\n", options.BaseDir)
+	}
+
+	fmt.Println("Starting to parse...")
 }

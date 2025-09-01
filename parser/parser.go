@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/gerrywa/yacd/types"
-	"github.com/gerrywa/yacd/utils/pathutil"
+	"github.com/gerryqd/yacd/types"
+	"github.com/gerryqd/yacd/utils/pathutil"
 )
 
 const (
@@ -430,4 +430,18 @@ func (p *Parser) GetCurrentDirectory() string {
 		return ""
 	}
 	return p.dirStack[len(p.dirStack)-1]
+}
+
+// ParseMakeLog is a convenience function to parse make log with default options
+func ParseMakeLog(reader io.Reader, verbose bool) ([]types.MakeLogEntry, error) {
+	options := types.ParseOptions{
+		Verbose: verbose,
+	}
+
+	parser, err := NewParser(options)
+	if err != nil {
+		return nil, err
+	}
+
+	return parser.ParseMakeLog(reader)
 }

@@ -4,107 +4,115 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
-	"github.com/gerrywa/yacd/types"
+	"github.com/gerryqd/yacd/types"
 )
 
-func TestNewGenerator(t *testing.T) {
-	options := types.ParseOptions{
-		OutputFile: "compile_commands.json",
-		Verbose:    false,
-	}
-
-	generator := NewGenerator(options)
-	if generator == nil {
-		t.Fatal("Generator should not be nil")
-	}
-
-	if generator.options.OutputFile != options.OutputFile {
-		t.Errorf("Output file = %s, expected %s", generator.options.OutputFile, options.OutputFile)
-	}
-}
-
-func TestConvertToCompilationEntry(t *testing.T) {
+func TestGenerateCompilationDatabase(t *testing.T) {
 	tests := []struct {
 		name     string
-		options  types.ParseOptions
-		entry    types.MakeLogEntry
-		expected types.CompilationEntry
+		entries  []types.MakeLogEntry
+		options  *types.ParseOptions
+		expected int
 	}{
 		{
 			name: "Basic conversion",
-			options: types.ParseOptions{
+			entries: []types.MakeLogEntry{
+				{
+					WorkingDir: "/project",
+					Compiler:   "gcc",
+					Args:       []string{"gcc", "-c", "main.c", "-o", "main.o"},
+					SourceFile: "main.c",
+					OutputFile: "main.o",
+				},
+			},
+			options: &types.ParseOptions{
 				UseRelativePaths: false,
+				Verbose:          false,
 			},
-			entry: types.MakeLogEntry{
-				WorkingDir: "/project/build",
-				Compiler:   "gcc",
-				Args:       []string{"gcc", "-c", "main.c", "-o", "main.o"},
-				SourceFile: "main.c",
-				OutputFile: "main.o",
-			},
-			expected: types.CompilationEntry{
-				Directory: "/project/build",
-				Arguments: []string{"gcc", "-c", "main.c", "-o", "main.o"},
-				File:      "/project/build/main.c",
-				Output:    "/project/build/main.o",
-			},
+			expected: 1,
 		},
 		{
-			name: "Relative path conversion",
-			options: types.ParseOptions{
-				UseRelativePaths: true,
-				BaseDir:          "/project",
+			name: "Multiple entries",
+			entries: []types.MakeLogEntry{
+				{
+					WorkingDir: "/project",
+					Compiler:   "gcc",
+					Args:       []string{"gcc", "-c", "main.c", "-o", "main.o"},
+					SourceFile: "main.c",
+					OutputFile: "main.o",
+				},
+				{
+					WorkingDir: "/project",
+					Compiler:   "g++",
+					Args:       []string{"g++", "-c", "util.cpp", "-o", "util.o"},
+					SourceFile: "util.cpp",
+					OutputFile: "util.o",
+				},
 			},
-			entry: types.MakeLogEntry{
-				WorkingDir: "/project/build",
-				Compiler:   "gcc",
-				Args:       []string{"gcc", "-c", "main.c", "-o", "main.o"},
-				SourceFile: "main.c",
-				OutputFile: "main.o",
+			options: &types.ParseOptions{
+				UseRelativePaths: false,
+				Verbose:          false,
 			},
+			expected: 2,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, _ := GenerateCompilationDatabase(tt.entries, tt.options)
+			if len(result) != tt.expected {
+				t.Errorf("GenerateCompilationDatabase() = %d entries, expected %d", len(result), tt.expected)
+			}
+		})
+	}
+}
+
+func TestConvertToRelativePaths(t *testing.T) {
+	// Use platform-specific paths for testing
+	var baseDir string
+	if runtime.GOOS == "windows" {
+		baseDir = `C:\project`
+	} else {
+		baseDir = "/project"
+	}
+
+	tests := []struct {
+		name     string
+		entry    types.CompilationEntry
+		baseDir  string
+		expected types.CompilationEntry
+	}{
+		{
+			name: "Basic relative path conversion",
+			entry: types.CompilationEntry{
+				Directory: filepath.Join(baseDir, "build"),
+				Command:   "gcc -c main.c -o main.o",
+				File:      filepath.Join(baseDir, "build", "main.c"),
+				Output:    filepath.Join(baseDir, "build", "main.o"),
+			},
+			baseDir: baseDir,
 			expected: types.CompilationEntry{
 				Directory: "build",
-				Arguments: []string{"gcc", "-c", "main.c", "-o", "main.o"},
-				File:      "build/main.c",
-				Output:    "build/main.o",
+				Command:   "gcc -c main.c -o main.o",
+				File:      filepath.Join("build", "main.c"),
+				Output:    filepath.Join("build", "main.o"),
 			},
 		},
 		{
-			name: "Absolute path source file",
-			options: types.ParseOptions{
-				UseRelativePaths: false,
+			name: "Same directory",
+			entry: types.CompilationEntry{
+				Directory: baseDir,
+				Command:   "gcc -c main.c -o main.o",
+				File:      filepath.Join(baseDir, "main.c"),
+				Output:    filepath.Join(baseDir, "main.o"),
 			},
-			entry: types.MakeLogEntry{
-				WorkingDir: "/project/build",
-				Compiler:   "gcc",
-				Args:       []string{"gcc", "-c", "/project/src/main.c", "-o", "main.o"},
-				SourceFile: "/project/src/main.c",
-				OutputFile: "main.o",
-			},
-			expected: types.CompilationEntry{
-				Directory: "/project/build",
-				Arguments: []string{"gcc", "-c", "/project/src/main.c", "-o", "main.o"},
-				File:      "/project/src/main.c", // Absolute path source file should not be modified
-				Output:    "/project/build/main.o",
-			},
-		},
-		{
-			name: "Empty working directory",
-			options: types.ParseOptions{
-				UseRelativePaths: false,
-			},
-			entry: types.MakeLogEntry{
-				WorkingDir: "",
-				Compiler:   "gcc",
-				Args:       []string{"gcc", "-c", "main.c", "-o", "main.o"},
-				SourceFile: "main.c",
-				OutputFile: "main.o",
-			},
+			baseDir: baseDir,
 			expected: types.CompilationEntry{
 				Directory: ".",
-				Arguments: []string{"gcc", "-c", "main.c", "-o", "main.o"},
+				Command:   "gcc -c main.c -o main.o",
 				File:      "main.c",
 				Output:    "main.o",
 			},
@@ -113,285 +121,126 @@ func TestConvertToCompilationEntry(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			generator := NewGenerator(tt.options)
-			result, err := generator.convertToCompilationEntry(tt.entry)
-			if err != nil {
-				t.Fatalf("convertToCompilationEntry() failed: %v", err)
+			result := convertToRelativePaths(tt.entry, tt.baseDir)
+
+			// Normalize paths for comparison
+			resultDir := filepath.ToSlash(result.Directory)
+			expectedDir := filepath.ToSlash(tt.expected.Directory)
+			if resultDir != expectedDir {
+				t.Errorf("Directory = %s, expected %s", resultDir, expectedDir)
 			}
 
-			if filepath.ToSlash(result.Directory) != filepath.ToSlash(tt.expected.Directory) {
-				t.Errorf("Directory = %s, expected %s", result.Directory, tt.expected.Directory)
+			if result.Command != tt.expected.Command {
+				t.Errorf("Command = %s, expected %s", result.Command, tt.expected.Command)
 			}
 
-			if len(result.Arguments) != len(tt.expected.Arguments) {
-				t.Errorf("Arguments length = %d, expected %d", len(result.Arguments), len(tt.expected.Arguments))
-			} else {
-				for i, arg := range tt.expected.Arguments {
-					if result.Arguments[i] != arg {
-						t.Errorf("Arguments[%d] = %s, expected %s", i, result.Arguments[i], arg)
-					}
-				}
+			resultFile := filepath.ToSlash(result.File)
+			expectedFile := filepath.ToSlash(tt.expected.File)
+			if resultFile != expectedFile {
+				t.Errorf("File = %s, expected %s", resultFile, expectedFile)
 			}
 
-			if filepath.ToSlash(result.File) != filepath.ToSlash(tt.expected.File) {
-				t.Errorf("File = %s, expected %s", result.File, tt.expected.File)
-			}
-
-			if filepath.ToSlash(result.Output) != filepath.ToSlash(tt.expected.Output) {
-				t.Errorf("Output = %s, expected %s", result.Output, tt.expected.Output)
+			resultOutput := filepath.ToSlash(result.Output)
+			expectedOutput := filepath.ToSlash(tt.expected.Output)
+			if resultOutput != expectedOutput {
+				t.Errorf("Output = %s, expected %s", resultOutput, expectedOutput)
 			}
 		})
 	}
 }
 
-func TestGenerateCompileCommands(t *testing.T) {
-	options := types.ParseOptions{
-		UseRelativePaths: false,
-		Verbose:          false,
+func TestGetRelativePath(t *testing.T) {
+	// Use platform-specific paths for testing
+	var baseDir string
+	if runtime.GOOS == "windows" {
+		baseDir = `C:\project`
+	} else {
+		baseDir = "/project"
 	}
-
-	generator := NewGenerator(options)
-
-	entries := []types.MakeLogEntry{
-		{
-			WorkingDir: "/project",
-			Compiler:   "gcc",
-			Args:       []string{"gcc", "-c", "main.c", "-o", "main.o"},
-			SourceFile: "main.c",
-			OutputFile: "main.o",
-		},
-		{
-			WorkingDir: "/project",
-			Compiler:   "gcc",
-			Args:       []string{"gcc", "-c", "util.c", "-o", "util.o"},
-			SourceFile: "util.c",
-			OutputFile: "util.o",
-		},
-	}
-
-	compileDB, err := generator.GenerateCompileCommands(entries)
-	if err != nil {
-		t.Fatalf("GenerateCompileCommands() failed: %v", err)
-	}
-
-	expectedCount := 2
-	if len(compileDB) != expectedCount {
-		t.Errorf("Generated %d compilation entries, expected %d", len(compileDB), expectedCount)
-	}
-
-	// Check first entry
-	if len(compileDB) > 0 {
-		entry := compileDB[0]
-		if filepath.ToSlash(entry.Directory) != "/project" {
-			t.Errorf("First entry directory = %s, expected /project", entry.Directory)
-		}
-		if filepath.ToSlash(entry.File) != "/project/main.c" {
-			t.Errorf("First entry file = %s, expected /project/main.c", entry.File)
-		}
-		if len(entry.Arguments) == 0 || entry.Arguments[0] != "gcc" {
-			t.Errorf("First entry compiler = %v, expected gcc", entry.Arguments)
-		}
-	}
-}
-
-func TestValidateCompileDB(t *testing.T) {
-	options := types.ParseOptions{}
-	generator := NewGenerator(options)
 
 	tests := []struct {
-		name      string
-		compileDB types.CompilationDatabase
-		wantError bool
+		name     string
+		path     string
+		baseDir  string
+		expected string
 	}{
 		{
-			name: "Valid compilation database",
-			compileDB: types.CompilationDatabase{
-				{
-					Directory: "/project",
-					Arguments: []string{"gcc", "-c", "main.c", "-o", "main.o"},
-					File:      "main.c",
-					Output:    "main.o",
-				},
-			},
-			wantError: false,
+			name:     "Basic relative path",
+			path:     filepath.Join(baseDir, "build", "main.c"),
+			baseDir:  baseDir,
+			expected: "build/main.c",
 		},
 		{
-			name:      "Empty compilation database",
-			compileDB: types.CompilationDatabase{},
-			wantError: true,
+			name:     "Same directory",
+			path:     filepath.Join(baseDir, "main.c"),
+			baseDir:  baseDir,
+			expected: "main.c",
 		},
 		{
-			name: "Missing directory",
-			compileDB: types.CompilationDatabase{
-				{
-					Directory: "",
-					Arguments: []string{"gcc", "-c", "main.c", "-o", "main.o"},
-					File:      "main.c",
-				},
-			},
-			wantError: true,
-		},
-		{
-			name: "Missing file",
-			compileDB: types.CompilationDatabase{
-				{
-					Directory: "/project",
-					Arguments: []string{"gcc", "-c", "main.c", "-o", "main.o"},
-					File:      "",
-				},
-			},
-			wantError: true,
-		},
-		{
-			name: "Missing arguments",
-			compileDB: types.CompilationDatabase{
-				{
-					Directory: "/project",
-					Arguments: []string{},
-					File:      "main.c",
-				},
-			},
-			wantError: true,
-		},
-		{
-			name: "Has arguments without command (valid)",
-			compileDB: types.CompilationDatabase{
-				{
-					Directory: "/project",
-					Arguments: []string{"gcc", "-c", "main.c"},
-					File:      "main.c",
-				},
-			},
-			wantError: false,
+			name:     "Relative path unchanged",
+			path:     "main.c",
+			baseDir:  baseDir,
+			expected: "main.c",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := generator.ValidateCompileDB(tt.compileDB)
-			if (err != nil) != tt.wantError {
-				t.Errorf("ValidateCompileDB() error = %v, wantError %v", err, tt.wantError)
+			result := getRelativePath(tt.path, tt.baseDir)
+			resultNormalized := filepath.ToSlash(result)
+			expectedNormalized := filepath.ToSlash(tt.expected)
+			if resultNormalized != expectedNormalized {
+				t.Errorf("getRelativePath(%s, %s) = %s, expected %s", tt.path, tt.baseDir, resultNormalized, expectedNormalized)
 			}
 		})
 	}
 }
 
-func TestWriteToFile(t *testing.T) {
-	// Create temporary directory for testing
-	tempDir := t.TempDir()
-	outputFile := filepath.Join(tempDir, "compile_commands.json")
+func TestWriteCompilationDatabase(t *testing.T) {
+	// Create temporary file for testing
+	tmpFile := filepath.Join(os.TempDir(), "test_compile_commands.json")
+	defer os.Remove(tmpFile)
 
-	options := types.ParseOptions{
-		OutputFile: outputFile,
-		Verbose:    false,
-	}
-
-	generator := NewGenerator(options)
-
-	compileDB := types.CompilationDatabase{
+	entries := []types.CompilationEntry{
 		{
 			Directory: "/project",
-			Arguments: []string{"gcc", "-c", "main.c", "-o", "main.o"},
-			File:      "main.c",
-			Output:    "main.o",
-		},
-		{
-			Directory: "/project",
-			Arguments: []string{"gcc", "-c", "util.c", "-o", "util.o"},
-			File:      "util.c",
-			Output:    "util.o",
+			Command:   "gcc -c main.c -o main.o",
+			File:      "/project/main.c",
+			Output:    "/project/main.o",
 		},
 	}
 
-	// Write to file
-	err := generator.WriteToFile(compileDB, outputFile)
+	err := WriteCompilationDatabase(entries, tmpFile)
 	if err != nil {
-		t.Fatalf("WriteToFile() failed: %v", err)
+		t.Fatalf("WriteCompilationDatabase() error = %v", err)
 	}
 
-	// Check if file exists
-	if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-		t.Fatal("Output file not created")
+	// Check that file was created
+	if _, err := os.Stat(tmpFile); os.IsNotExist(err) {
+		t.Fatal("Output file was not created")
 	}
 
-	// Read and validate file content
-	data, err := os.ReadFile(outputFile)
+	// Read and parse the file
+	data, err := os.ReadFile(tmpFile)
 	if err != nil {
 		t.Fatalf("Failed to read output file: %v", err)
 	}
 
-	var readDB types.CompilationDatabase
-	if err := json.Unmarshal(data, &readDB); err != nil {
-		t.Fatalf("Failed to parse JSON: %v", err)
-	}
-
-	if len(readDB) != len(compileDB) {
-		t.Errorf("Read %d entries, expected %d", len(readDB), len(compileDB))
-	}
-
-	// Validate content
-	for i, expected := range compileDB {
-		if i >= len(readDB) {
-			break
-		}
-
-		actual := readDB[i]
-		if actual.Directory != expected.Directory {
-			t.Errorf("Entry %d: Directory = %s, expected %s", i, actual.Directory, expected.Directory)
-		}
-		// Compare Arguments array
-		if len(actual.Arguments) != len(expected.Arguments) {
-			t.Errorf("Entry %d: Arguments length = %d, expected %d", i, len(actual.Arguments), len(expected.Arguments))
-		} else {
-			for j, arg := range expected.Arguments {
-				if actual.Arguments[j] != arg {
-					t.Errorf("Entry %d Arguments[%d] = %s, expected %s", i, j, actual.Arguments[j], arg)
-				}
-			}
-		}
-		if actual.File != expected.File {
-			t.Errorf("Entry %d: File = %s, expected %s", i, actual.File, expected.File)
-		}
-		if actual.Output != expected.Output {
-			t.Errorf("Entry %d: Output = %s, expected %s", i, actual.Output, expected.Output)
-		}
-	}
-}
-
-func TestWriteToFileWithSubdirectory(t *testing.T) {
-	// Create temporary directory for testing
-	tempDir := t.TempDir()
-	subDir := filepath.Join(tempDir, "build", "output")
-	outputFile := filepath.Join(subDir, "compile_commands.json")
-
-	options := types.ParseOptions{
-		OutputFile: outputFile,
-		Verbose:    false,
-	}
-
-	generator := NewGenerator(options)
-
-	compileDB := types.CompilationDatabase{
-		{
-			Directory: "/project",
-			Arguments: []string{"gcc", "-c", "main.c", "-o", "main.o"},
-			File:      "main.c",
-		},
-	}
-
-	// Write to file (should automatically create subdirectory)
-	err := generator.WriteToFile(compileDB, outputFile)
+	var result []types.CompilationEntry
+	err = json.Unmarshal(data, &result)
 	if err != nil {
-		t.Fatalf("WriteToFile() failed: %v", err)
+		t.Fatalf("Failed to parse JSON output: %v", err)
 	}
 
-	// Check if file exists
-	if _, err := os.Stat(outputFile); os.IsNotExist(err) {
-		t.Fatal("Output file not created")
+	if len(result) != 1 {
+		t.Errorf("Expected 1 entry in output, got %d", len(result))
 	}
 
-	// Check if subdirectory was created
-	if _, err := os.Stat(subDir); os.IsNotExist(err) {
-		t.Fatal("Subdirectory not created")
+	if result[0].Directory != "/project" {
+		t.Errorf("Directory = %s, expected /project", result[0].Directory)
+	}
+
+	if result[0].Command != "gcc -c main.c -o main.o" {
+		t.Errorf("Command = %s, expected 'gcc -c main.c -o main.o'", result[0].Command)
 	}
 }

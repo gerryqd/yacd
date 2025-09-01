@@ -5,8 +5,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gerrywa/yacd/types"
+	"github.com/gerryqd/yacd/types"
 )
+
+// Test data
+const sampleMakeLog = `make: Entering directory '/home/user/project'
+gcc -c main.c -o main.o
+g++ -c utils.cpp -o utils.o
+make: Leaving directory '/home/user/project'`
 
 func TestPrepareOptions(t *testing.T) {
 	tests := []struct {
@@ -295,11 +301,11 @@ func TestPrintExecutionInfo(t *testing.T) {
 			// This function just prints to stdout, so we test it doesn't panic
 			defer func() {
 				if r := recover(); r != nil {
-					t.Errorf("printExecutionInfo() panicked: %v", r)
+					t.Errorf("PrintExecutionInfo() panicked: %v", r)
 				}
 			}()
 
-			printExecutionInfo(tt.options)
+			PrintExecutionInfo(&tt.options)
 		})
 	}
 }

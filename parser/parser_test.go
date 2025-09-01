@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/gerrywa/yacd/types"
+	"github.com/gerryqd/yacd/types"
 )
 
 func TestNewParser(t *testing.T) {
