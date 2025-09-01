@@ -418,6 +418,59 @@ make: Leaving directory '/home/user/project'`
 	}
 }
 
+func TestParseMakeLogWithComments(t *testing.T) {
+	options := types.ParseOptions{BaseDir: "/project"}
+	parser, err := NewParser(options)
+	if err != nil {
+		t.Fatalf("Failed to create parser: %v", err)
+	}
+
+	// Simulate make log with comment lines starting with '#'
+	makeLog := `# This is a comment line
+make: Entering directory '/home/user/project'
+# Another comment
+mkdir build
+# Comment before compilation
+gcc -c -Wall main.c -o main.o
+# More comments
+gcc -c -Wall util.c -o util.o
+# Final comment
+gcc main.o util.o -o program
+make: Leaving directory '/home/user/project'
+# End comment`
+
+	reader := strings.NewReader(makeLog)
+	entries, err := parser.ParseMakeLog(reader)
+	if err != nil {
+		t.Fatalf("ParseMakeLog() failed: %v", err)
+	}
+
+	// Should parse 2 compilation entries (comments should be ignored)
+	expectedCount := 2
+	if len(entries) != expectedCount {
+		t.Errorf("Parsed %d entries, expected %d", len(entries), expectedCount)
+	}
+
+	// Check first entry
+	if len(entries) > 0 {
+		entry := entries[0]
+		if entry.SourceFile != "main.c" {
+			t.Errorf("First entry source file = %s, expected main.c", entry.SourceFile)
+		}
+		if entry.WorkingDir != "/home/user/project" {
+			t.Errorf("First entry working directory = %s, expected /home/user/project", entry.WorkingDir)
+		}
+	}
+
+	// Check second entry
+	if len(entries) > 1 {
+		entry := entries[1]
+		if entry.SourceFile != "util.c" {
+			t.Errorf("Second entry source file = %s, expected util.c", entry.SourceFile)
+		}
+	}
+}
+
 func TestMakeCDirectoryHandling(t *testing.T) {
 	options := types.ParseOptions{}
 	parser, err := NewParser(options)
@@ -687,5 +740,53 @@ func TestShellCommandChain(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestParseMakeLogWithEchoCommands(t *testing.T) {
+	options := types.ParseOptions{BaseDir: "/project"}
+	parser, err := NewParser(options)
+	if err != nil {
+		t.Fatalf("Failed to create parser: %v", err)
+	}
+
+	// Simulate make log with echo commands containing "Compiling" messages
+	makeLog := `make: Entering directory '/home/user/project'
+echo "/bin/date +%T Compiling /usr/bin/tput -Txterm smso/home/user/project/main.c/usr/bin/tput -Txterm sgr0 2>/dev/null"
+gcc -c -Wall main.c -o main.o
+echo "/bin/date +%T Compiling /usr/bin/tput -Txterm smso/home/user/project/util.c/usr/bin/tput -Txterm sgr0 2>/dev/null"
+gcc -c -Wall util.c -o util.o
+gcc main.o util.o -o program
+make: Leaving directory '/home/user/project'`
+
+	reader := strings.NewReader(makeLog)
+	entries, err := parser.ParseMakeLog(reader)
+	if err != nil {
+		t.Fatalf("ParseMakeLog() failed: %v", err)
+	}
+
+	// Should parse 2 compilation entries (echo commands should be ignored)
+	expectedCount := 2
+	if len(entries) != expectedCount {
+		t.Errorf("Parsed %d entries, expected %d", len(entries), expectedCount)
+	}
+
+	// Check first entry
+	if len(entries) > 0 {
+		entry := entries[0]
+		if entry.SourceFile != "main.c" {
+			t.Errorf("First entry source file = %s, expected main.c", entry.SourceFile)
+		}
+		if entry.WorkingDir != "/home/user/project" {
+			t.Errorf("First entry working directory = %s, expected /home/user/project", entry.WorkingDir)
+		}
+	}
+
+	// Check second entry
+	if len(entries) > 1 {
+		entry := entries[1]
+		if entry.SourceFile != "util.c" {
+			t.Errorf("Second entry source file = %s, expected util.c", entry.SourceFile)
+		}
 	}
 }

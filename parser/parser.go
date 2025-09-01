@@ -84,6 +84,11 @@ func (p *Parser) ParseMakeLog(reader io.Reader) ([]types.MakeLogEntry, error) {
 			continue
 		}
 
+		// Skip lines starting with '#' (comments)
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+
 		// Handle make directory changes
 		if p.handleDirectoryChange(line) {
 			continue
@@ -132,6 +137,11 @@ func (p *Parser) handleDirectoryChange(line string) bool {
 
 // parseCompileCommand parses compilation commands
 func (p *Parser) parseCompileCommand(line string) *types.MakeLogEntry {
+	// Skip echo commands that might contain compiler names but are not actual compilation commands
+	if strings.HasPrefix(strings.TrimSpace(line), "echo ") {
+		return nil
+	}
+
 	// Check for compiler command (simplified logic)
 	if p.compilerRegex.MatchString(line) {
 		// Handle shell command chains with cd && compiler
