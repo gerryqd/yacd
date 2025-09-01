@@ -19,11 +19,6 @@ func TestIsAbsolutePath(t *testing.T) {
 			expected: true,
 		},
 		{
-			name:     "Windows absolute path",
-			path:     "C:\\Users\\user\\project",
-			expected: true,
-		},
-		{
 			name:     "Relative path",
 			path:     "relative/path",
 			expected: false,
@@ -48,6 +43,19 @@ func TestIsAbsolutePath(t *testing.T) {
 			path:     "",
 			expected: false,
 		},
+	}
+
+	// Add Windows-specific test only on Windows platform
+	if runtime.GOOS == "windows" {
+		tests = append(tests, struct {
+			name     string
+			path     string
+			expected bool
+		}{
+			name:     "Windows absolute path",
+			path:     "C:\\Users\\user\\project",
+			expected: true,
+		})
 	}
 
 	for _, tt := range tests {

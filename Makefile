@@ -8,12 +8,14 @@ ifeq ($(OS),Windows_NT)
 	RM := del /Q
 	MKDIR := mkdir
 	SEP := \\
+	NULL_DEVICE := nul
 else
 	detected_OS := $(shell uname -s)
 	BINARY_EXT :=
 	RM := rm -f
 	MKDIR := mkdir -p
 	SEP := /
+	NULL_DEVICE := /dev/null
 endif
 
 # Go related variables
@@ -21,12 +23,11 @@ GO := go
 BINARY_NAME := yacd$(BINARY_EXT)
 BUILD_DIR := build
 COVERAGE_FILE := coverage.out
-VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
-COMMIT := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
-BUILD_TIME := $(shell date -u '+%Y-%m-%d_%H:%M:%S')
+VERSION := $(shell git describe --tags --always --dirty 2>$(NULL_DEVICE) || echo "dev")
+COMMIT := $(shell git rev-parse --short HEAD 2>$(NULL_DEVICE) || echo "unknown")
 
 # Build flags
-LDFLAGS := -ldflags "-X main.Version=$(VERSION) -X main.Commit=$(COMMIT) -X main.BuildTime=$(BUILD_TIME)"
+LDFLAGS := -ldflags "-X github.com/gerrywa/yacd/cmd.GitCommit=$(COMMIT)"
 
 .PHONY: all build clean test test-coverage test-verbose lint fmt vet help run install
 
@@ -36,7 +37,11 @@ all: fmt vet test build
 # Build binary
 build:
 	@echo "Building $(BINARY_NAME) for $(detected_OS)..."
-	@$(MKDIR) $(BUILD_DIR)
+ifeq ($(detected_OS),Windows)
+	@if not exist $(BUILD_DIR) $(MKDIR) $(BUILD_DIR)
+else
+	@$(MKDIR) $(BUILD_DIR) 2>$(NULL_DEVICE) || true
+endif
 	$(GO) build $(LDFLAGS) -o $(BUILD_DIR)$(SEP)$(BINARY_NAME) .
 
 # Clean build artifacts
@@ -88,7 +93,7 @@ lint:
 # Install to GOPATH/bin
 install:
 	@echo "Installing $(BINARY_NAME)..."
-	$(GO) install $(LDFLAGS) .
+	$(GO) install .
 
 # Run program with sample usage
 run:

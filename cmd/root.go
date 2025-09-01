@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/spf13/cobra"
 )
@@ -14,7 +15,20 @@ var (
 	baseDir          string
 	verbose          bool
 	makeCommand      string
+	showVersion      bool
+	GitCommit        string
 )
+
+// Version information
+const (
+	Version = "v0.01"
+)
+
+// GetGitCommit retrieves the Git commit hash
+func GetGitCommit() string {
+	// Return the Git commit hash set at build time
+	return GitCommit
+}
 
 // rootCmd root command
 var rootCmd = &cobra.Command{
@@ -53,13 +67,32 @@ func init() {
 	rootCmd.Flags().StringVarP(&baseDir, "base-dir", "b", "", "Base directory path (used with --relative)")
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	rootCmd.Flags().StringVarP(&makeCommand, "dry-run", "n", "", "Execute make command with -Bnkw flags and process output directly")
+	rootCmd.Flags().BoolVarP(&showVersion, "version", "V", false, "Print version information and exit")
 
 	// Mark mutually exclusive parameters
 	rootCmd.MarkFlagsMutuallyExclusive("input", "dry-run")
+
+	// Disable the automatic completion command
+	rootCmd.CompletionOptions.DisableDefaultCmd = true
 }
 
 // runGenerate executes the generation operation
 func runGenerate(cmd *cobra.Command, args []string) error {
+	// Check if version flag is set
+	if showVersion {
+		// Get platform information
+		platform := fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+		commit := GetGitCommit()
+
+		// Print version information
+		if commit != "unknown" && commit != "" {
+			fmt.Printf("yacd version %s (commit: %s) (%s)\n", Version, commit, platform)
+		} else {
+			fmt.Printf("yacd version %s (%s)\n", Version, platform)
+		}
+		return nil
+	}
+
 	// Check if no input is provided and show help instead of error
 	stdinHasData := HasStdinData()
 	if inputFile == "" && makeCommand == "" && !stdinHasData {
