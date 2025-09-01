@@ -790,3 +790,150 @@ make: Leaving directory '/home/user/project'`
 		}
 	}
 }
+
+func TestFindCompilerStartIndex(t *testing.T) {
+	options := types.ParseOptions{}
+	parser, err := NewParser(options)
+	if err != nil {
+		t.Fatalf("Failed to create parser: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		expected int
+	}{
+		{
+			name:     "Simple gcc command",
+			input:    "gcc -c main.c -o main.o",
+			expected: 0,
+		},
+		{
+			name:     "Command with check tool prefix",
+			input:    "/path/to/check /path/to/check -p arm-linux-gnu-gcc -c main.c -o main.o",
+			expected: 33, // Index where "arm-linux-gnu-gcc" starts
+		},
+		{
+			name:     "Command with multiple prefixes",
+			input:    "tool1 tool2 gcc -c main.c -o main.o",
+			expected: 12, // Index where "gcc" starts (including spaces)
+		},
+		{
+			name:     "No compiler found",
+			input:    "mkdir build && cd build",
+			expected: -1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parser.findCompilerStartIndex(tt.input)
+			if result != tt.expected {
+				t.Errorf("findCompilerStartIndex() = %d, expected %d", result, tt.expected)
+				t.Errorf("Input: %s", tt.input)
+			}
+		})
+	}
+}
+
+func TestParseCompileCommandWithPrefix(t *testing.T) {
+	options := types.ParseOptions{BaseDir: "/project"}
+	parser, err := NewParser(options)
+	if err != nil {
+		t.Fatalf("Failed to create parser: %v", err)
+	}
+
+	// Set working directory
+	parser.dirStack = append(parser.dirStack, "/project/build")
+
+	tests := []struct {
+		name     string
+		line     string
+		expected *types.MakeLogEntry
+	}{
+		{
+			name: "Command with check tool prefix",
+			line: "path/to/check path/to/check -p gcc -DTEST=1 -c main.c -o main.o",
+			expected: &types.MakeLogEntry{
+				WorkingDir: "/project/build",
+				Compiler:   "gcc",
+				Args: []string{
+					"gcc",
+					"-DTEST=1",
+					"-c",
+					"main.c",
+					"-o",
+					"main.o",
+				},
+				SourceFile: "main.c",
+				OutputFile: "main.o",
+			},
+		},
+		{
+			name: "Command with complex prefix",
+			line: "/tools/preprocessor /tools/preprocessor -flags arm-linux-gnueabi-gcc -DARCH=arm -Wall -c file.c -o file.o",
+			expected: &types.MakeLogEntry{
+				WorkingDir: "/project/build",
+				Compiler:   "arm-linux-gnueabi-gcc",
+				Args: []string{
+					"arm-linux-gnueabi-gcc",
+					"-DARCH=arm",
+					"-Wall",
+					"-c",
+					"file.c",
+					"-o",
+					"file.o",
+				},
+				SourceFile: "file.c",
+				OutputFile: "file.o",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parser.parseCompileCommand(tt.line)
+
+			if tt.expected == nil {
+				if result != nil {
+					t.Errorf("parseCompileCommand() = %v, expected nil", result)
+				}
+				return
+			}
+
+			if result == nil {
+				t.Fatal("parseCompileCommand() = nil, expected non-nil")
+			}
+
+			if result.WorkingDir != tt.expected.WorkingDir {
+				t.Errorf("WorkingDir = %s, expected %s", result.WorkingDir, tt.expected.WorkingDir)
+			}
+
+			if result.Compiler != tt.expected.Compiler {
+				t.Errorf("Compiler = %s, expected %s", result.Compiler, tt.expected.Compiler)
+			}
+
+			if result.SourceFile != tt.expected.SourceFile {
+				t.Errorf("SourceFile = %s, expected %s", result.SourceFile, tt.expected.SourceFile)
+			}
+
+			if result.OutputFile != tt.expected.OutputFile {
+				t.Errorf("OutputFile = %s, expected %s", result.OutputFile, tt.expected.OutputFile)
+			}
+
+			// Compare args
+			if len(result.Args) != len(tt.expected.Args) {
+				t.Errorf("Args length = %d, expected %d", len(result.Args), len(tt.expected.Args))
+				t.Errorf("Actual args: %v", result.Args)
+				t.Errorf("Expected args: %v", tt.expected.Args)
+				return
+			}
+
+			for i, arg := range tt.expected.Args {
+				if result.Args[i] != arg {
+					t.Errorf("Args[%d] = %s, expected %s", i, result.Args[i], arg)
+				}
+			}
+		})
+	}
+}

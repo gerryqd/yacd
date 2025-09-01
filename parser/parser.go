@@ -206,8 +206,17 @@ func (p *Parser) parseCompilerCommandOnly(line string) *types.MakeLogEntry {
 	// Remove redirection operators before parsing
 	cleanLine := p.removeRedirectionOperators(line)
 
+	// Find the actual compiler in the command line
+	compilerStartIndex := p.findCompilerStartIndex(cleanLine)
+	if compilerStartIndex == -1 {
+		return nil
+	}
+
+	// Extract the compiler command part
+	compilerCommand := cleanLine[compilerStartIndex:]
+
 	// Split command line arguments
-	args := p.splitCommandLine(cleanLine)
+	args := p.splitCommandLine(compilerCommand)
 	if len(args) == 0 {
 		return nil
 	}
@@ -229,14 +238,35 @@ func (p *Parser) parseCompilerCommandOnly(line string) *types.MakeLogEntry {
 	}
 }
 
+// findCompilerStartIndex finds the start index of the actual compiler command
+func (p *Parser) findCompilerStartIndex(line string) int {
+	// Split the line into words to find the compiler
+	words := strings.Fields(line)
+
+	// Look for the compiler pattern in the words
+	for i, word := range words {
+		if p.compilerRegex.MatchString(word) {
+			// Found a compiler, calculate its position in the original line
+			// Reconstruct the prefix to find the exact position
+			prefix := ""
+			for j := 0; j < i; j++ {
+				prefix += words[j] + " "
+			}
+			return len(prefix)
+		}
+	}
+
+	// If no compiler found in words, try the direct approach
+	if p.compilerRegex.MatchString(line) {
+		return 0
+	}
+
+	return -1
+}
+
 // resolveRelativePath resolves a relative path against a base directory
 func (p *Parser) resolveRelativePath(baseDir, relativePath string) string {
 	return pathutil.ResolveRelativePath(baseDir, relativePath)
-}
-
-// isAbsolutePath checks if a path is absolute (cross-platform)
-func (p *Parser) isAbsolutePath(path string) bool {
-	return pathutil.IsAbsolutePath(path)
 }
 
 // parseDirectCompileCommand parses direct compilation commands
@@ -244,8 +274,17 @@ func (p *Parser) parseDirectCompileCommand(line string) *types.MakeLogEntry {
 	// Remove redirection operators before parsing
 	cleanLine := p.removeRedirectionOperators(line)
 
+	// Find the actual compiler in the command line
+	compilerStartIndex := p.findCompilerStartIndex(cleanLine)
+	if compilerStartIndex == -1 {
+		return nil
+	}
+
+	// Extract the compiler command part
+	compilerCommand := cleanLine[compilerStartIndex:]
+
 	// Split command line arguments
-	args := p.splitCommandLine(cleanLine)
+	args := p.splitCommandLine(compilerCommand)
 	if len(args) == 0 {
 		return nil
 	}
