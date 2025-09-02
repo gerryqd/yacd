@@ -35,8 +35,7 @@ func GenerateCompilationDatabase(entries []types.MakeLogEntry, options *types.Pa
 
 		// Check if source file exists
 		filePath := compilationEntry.File
-		// If using relative paths, we need to resolve the full path
-		if options.UseRelativePaths && !filepath.IsAbs(filePath) {
+		if !filepath.IsAbs(filePath) {
 			// For relative paths, try to resolve using the directory
 			if filepath.IsAbs(compilationEntry.Directory) {
 				filePath = filepath.Join(compilationEntry.Directory, filePath)
