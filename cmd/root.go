@@ -21,7 +21,7 @@ var (
 
 // Version information
 const (
-	Version = "v0.01"
+	Version = "v0.02"
 )
 
 // GetGitCommit retrieves the Git commit hash

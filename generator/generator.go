@@ -4,11 +4,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/gerryqd/yacd/types"
 	"github.com/gerryqd/yacd/utils/errorutil"
+)
+
+// Global cache for compiler sysroots
+var (
+	compilerSysrootCache = make(map[string]string)
+	cacheMutex           sync.RWMutex
 )
 
 // GenerateCompilationDatabase converts parsed make log entries to compilation database entries
@@ -34,6 +42,9 @@ func GenerateCompilationDatabase(entries []types.MakeLogEntry, options *types.Pa
 			File:      entry.SourceFile,
 			Output:    entry.OutputFile,
 		}
+
+		// Add sysroot include path if possible
+		compilationEntry.Command = addSysrootIncludePath(compilationEntry.Command, entry.Compiler)
 
 		// Apply path transformations if needed
 		if options.UseRelativePaths {
@@ -106,6 +117,116 @@ func getRelativePath(path, baseDir string) string {
 	}
 
 	return relPath
+}
+
+// isValidPath checks if the given path is a valid directory path
+func isValidPath(path string) bool {
+	// Basic validation: non-empty, looks like a path
+	if path == "" {
+		return false
+	}
+
+	// Check if it's an absolute path or starts with common path indicators
+	if strings.HasPrefix(path, "/") {
+		// For absolute paths, check if it exists and is a directory
+		info, err := os.Stat(path)
+		return err == nil && info.IsDir()
+	} else if strings.HasPrefix(path, ".") || strings.HasPrefix(path, "..") {
+		// For relative paths, check if it exists and is a directory
+		info, err := os.Stat(path)
+		return err == nil && info.IsDir()
+	}
+
+	// If it doesn't look like a valid path format, it's probably not valid
+	return false
+}
+
+// getCompilerSysroot returns the sysroot path for a given compiler
+// It uses a cache to avoid repeated execution of the same command
+func getCompilerSysroot(compilerPath string) (string, error) {
+	// Check cache first
+	cacheMutex.RLock()
+	if sysroot, exists := compilerSysrootCache[compilerPath]; exists {
+		cacheMutex.RUnlock()
+		return sysroot, nil
+	}
+	cacheMutex.RUnlock()
+
+	// Execute compiler with --print-sysroot option
+	cmd := exec.Command(compilerPath, "--print-sysroot")
+	output, err := cmd.Output()
+	if err != nil {
+		// If the command fails, return an empty string and the error
+		return "", fmt.Errorf("failed to execute %s --print-sysroot: %w", compilerPath, err)
+	}
+
+	// Trim the output to get the sysroot path
+	sysroot := strings.TrimSpace(string(output))
+
+	// Validate the sysroot path
+	if !isValidPath(sysroot) {
+		// If the path is not valid, return empty string (no sysroot to add)
+		// Cache the empty result to avoid repeated attempts
+		cacheMutex.Lock()
+		compilerSysrootCache[compilerPath] = ""
+		cacheMutex.Unlock()
+		return "", fmt.Errorf("invalid sysroot path returned by compiler: %s", sysroot)
+	}
+
+	// Cache the result
+	cacheMutex.Lock()
+	compilerSysrootCache[compilerPath] = sysroot
+	cacheMutex.Unlock()
+
+	return sysroot, nil
+}
+
+// addSysrootIncludePath adds the sysroot include path to the command if it doesn't already exist
+func addSysrootIncludePath(command string, compiler string) string {
+	// Get the sysroot path from the compiler
+	sysroot, err := getCompilerSysroot(compiler)
+	if err != nil {
+		// If we can't get the sysroot, return the original command
+		fmt.Printf("Warning: Could not get valid sysroot for compiler %s: %v\n", compiler, err)
+		return command
+	}
+
+	// If sysroot is empty, return the original command
+	if sysroot == "" {
+		return command
+	}
+
+	// Check if the sysroot include path is already in the command
+	sysrootIncludePath := "-I" + filepath.Join(sysroot, "usr", "include")
+
+	// Split command into parts to check for the exact include path
+	parts := strings.Fields(command)
+	for _, part := range parts {
+		if part == sysrootIncludePath {
+			// If the path is already in the command, return the original command
+			return command
+		}
+	}
+
+	// Also check for the case where the include path is part of a combined argument like "-I/path"
+	for _, part := range parts {
+		if strings.HasPrefix(part, "-I") && strings.HasSuffix(part, filepath.Join(sysroot, "usr", "include")) {
+			// If the path is already in the command, return the original command
+			return command
+		}
+	}
+
+	// Add the sysroot include path to the command
+	// Find the position after the compiler name to insert the include path
+	// We'll add it after the compiler name but before other options
+	cmdParts := strings.SplitN(command, " ", 2)
+	if len(cmdParts) < 2 {
+		// If there's only the compiler name, just append the include path
+		return command + " " + sysrootIncludePath
+	}
+
+	// Insert the sysroot include path after the compiler name
+	return cmdParts[0] + " " + sysrootIncludePath + " " + cmdParts[1]
 }
 
 // WriteCompilationDatabase writes the compilation database to a JSON file
