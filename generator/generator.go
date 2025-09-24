@@ -18,9 +18,19 @@ func GenerateCompilationDatabase(entries []types.MakeLogEntry, options *types.Pa
 
 	for i, entry := range entries {
 		// Convert to compilation entry
+		// Check if entry.Args already includes the compiler as the first element
+		var commandArgs []string
+		if len(entry.Args) > 0 && entry.Args[0] == entry.Compiler {
+			// Args already includes the compiler, so just use entry.Args
+			commandArgs = entry.Args
+		} else {
+			// Args doesn't include the compiler, so prepend it
+			commandArgs = append([]string{entry.Compiler}, entry.Args...)
+		}
+
 		compilationEntry := types.CompilationEntry{
 			Directory: entry.WorkingDir,
-			Command:   strings.Join(append([]string{entry.Compiler}, entry.Args...), " "),
+			Command:   strings.Join(commandArgs, " "),
 			File:      entry.SourceFile,
 			Output:    entry.OutputFile,
 		}

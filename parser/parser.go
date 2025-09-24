@@ -17,7 +17,9 @@ const (
 	makeDirLeavePattern = `^make(\[\d+\])?: Leaving directory '(.+)'`
 
 	// Common C/C++ compilers (simplified pattern)
-	commonCompilers = `(gcc|g\+\+|clang|clang\+\+|cc)`
+	// Updated to include cross-compiler patterns like arm-linux-gnueabi-gcc, mips64-octeon-linux-gnu-gcc, etc.
+	// This pattern matches both regular compilers (gcc) and cross-compilers (arm-linux-gnueabi-gcc)
+	commonCompilers = `(\w+-)*\w*-(gcc|g\+\+|clang|clang\+\+|cc)|\b(gcc|g\+\+|clang|clang\+\+|cc)\b`
 )
 
 // Parser parser struct
@@ -257,6 +259,7 @@ func (p *Parser) findCompilerStartIndex(line string) int {
 	}
 
 	// If no compiler found in words, try the direct approach
+	// This is needed when the entire line matches the compiler pattern
 	if p.compilerRegex.MatchString(line) {
 		return 0
 	}
