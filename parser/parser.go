@@ -225,6 +225,12 @@ func (p *Parser) parseCompilerCommandOnly(line string) *types.MakeLogEntry {
 
 	compiler := args[0]
 
+	// Additional validation: check if the compiler looks like a real compiler
+	// Skip if it looks like a macro definition or source file
+	if p.isInvalidCompiler(compiler) {
+		return nil
+	}
+
 	// Find source file and output file
 	sourceFile, outputFile := p.extractFiles(args)
 	if sourceFile == "" {
@@ -246,8 +252,24 @@ func (p *Parser) findCompilerStartIndex(line string) int {
 	words := strings.Fields(line)
 
 	// Look for the compiler pattern in the words
+	// Skip words that are compiler flags like -D, -I, etc.
 	for i, word := range words {
+		// Skip if it's a compiler flag or option
+		if strings.HasPrefix(word, "-") {
+			continue
+		}
+
+		// Check if it's a potential compiler name
 		if p.compilerRegex.MatchString(word) {
+			// Additional check: make sure it's not part of a macro definition like -DCPP_LOCATION="gcc"
+			// If previous word starts with -D, skip this word too
+			if i > 0 {
+				prevWord := words[i-1]
+				if strings.HasPrefix(prevWord, "-D") {
+					continue
+				}
+			}
+
 			// Found a compiler, calculate its position in the original line
 			// Reconstruct the prefix to find the exact position
 			prefix := ""
@@ -293,6 +315,12 @@ func (p *Parser) parseDirectCompileCommand(line string) *types.MakeLogEntry {
 	}
 
 	compiler := args[0]
+
+	// Additional validation: check if the compiler looks like a real compiler
+	// Skip if it looks like a macro definition or source file
+	if p.isInvalidCompiler(compiler) {
+		return nil
+	}
 
 	// Find source file and output file
 	sourceFile, outputFile := p.extractFiles(args)
@@ -464,6 +492,36 @@ func (p *Parser) extractPathFromCommand(command string) string {
 	}
 
 	return ""
+}
+
+// isInvalidCompiler checks if the compiler name is likely not a real compiler
+// This helps filter out false positives like -DCPP_LOCATION or source files
+func (p *Parser) isInvalidCompiler(compiler string) bool {
+	// Check if it looks like a macro definition
+	if strings.HasPrefix(compiler, "-D") {
+		return true
+	}
+
+	// Check if it looks like a source file (has common source file extensions)
+	if strings.HasSuffix(compiler, ".cc") ||
+		strings.HasSuffix(compiler, ".cpp") ||
+		strings.HasSuffix(compiler, ".c") ||
+		strings.HasSuffix(compiler, ".cxx") ||
+		strings.HasSuffix(compiler, ".C") ||
+		strings.HasSuffix(compiler, ".s") ||
+		strings.HasSuffix(compiler, ".S") ||
+		strings.HasSuffix(compiler, ".o") {
+		return true
+	}
+
+	// Check if it contains common file extensions that indicate it's not a compiler
+	if strings.Contains(compiler, ".yy.tab.") ||
+		strings.Contains(compiler, ".tab.") ||
+		strings.Contains(compiler, ".lex.") {
+		return true
+	}
+
+	return false
 }
 
 // GetCurrentDirectory gets current working directory
