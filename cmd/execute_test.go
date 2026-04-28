@@ -103,7 +103,7 @@ func TestPrepareOptions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			options, err := PrepareOptions(tt.inputFile, tt.outputFile, tt.makeCommand,
-				tt.baseDir, tt.useRelativePaths, tt.verbose)
+				tt.baseDir, tt.useRelativePaths, tt.verbose, false)
 
 			if tt.expectError {
 				if err == nil {
@@ -160,7 +160,7 @@ func TestPrepareOptions(t *testing.T) {
 
 func TestPrepareOptionsWithCurrentDirectory(t *testing.T) {
 	// Test case where output file is in current directory and relative paths are used
-	options, err := PrepareOptions("input.log", "output.json", "", "", true, false)
+	options, err := PrepareOptions("input.log", "output.json", "", "", true, false, false)
 
 	if err != nil {
 		t.Errorf("PrepareOptions() unexpected error = %v", err)

@@ -2,12 +2,17 @@ package cmd
 
 import (
 	"os"
+	"strings"
 
 	"github.com/gerryqd/yacd/utils/errorutil"
 )
 
 // ValidateInputSources validates that exactly one input source is provided
 func ValidateInputSources(inputFile, makeCommand string, stdinHasData bool) error {
+	// Trim whitespace from string inputs
+	inputFile = strings.TrimSpace(inputFile)
+	makeCommand = strings.TrimSpace(makeCommand)
+
 	// Count how many input sources are provided
 	inputCount := 0
 	if inputFile != "" {

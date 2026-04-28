@@ -687,7 +687,6 @@ func TestShellCommandChain(t *testing.T) {
 
 			// Set up directory stack
 			parser.dirStack = []string{"/test"}
-			parser.directoryHistory = []string{"/test"}
 
 			result := parser.parseCompileCommand(test.line)
 

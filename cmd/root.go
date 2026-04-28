@@ -16,6 +16,7 @@ var (
 	verbose          bool
 	makeCommand      string
 	showVersion      bool
+	addSysroot       bool
 	GitCommit        string
 )
 
@@ -68,6 +69,7 @@ func init() {
 	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Verbose output")
 	rootCmd.Flags().StringVarP(&makeCommand, "dry-run", "n", "", "Execute make command with -Bnkw flags and process output directly")
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "V", false, "Print version information and exit")
+	rootCmd.Flags().BoolVar(&addSysroot, "add-sysroot", false, "Add compiler sysroot include path to commands")
 
 	// Mark mutually exclusive parameters
 	rootCmd.MarkFlagsMutuallyExclusive("input", "dry-run")
@@ -107,7 +109,7 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Prepare options
-	options, err := PrepareOptions(inputFile, outputFile, makeCommand, baseDir, useRelativePaths, verbose)
+	options, err := PrepareOptions(inputFile, outputFile, makeCommand, baseDir, useRelativePaths, verbose, addSysroot)
 	if err != nil {
 		return err
 	}

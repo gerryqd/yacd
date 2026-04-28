@@ -20,6 +20,9 @@ coverage.html
 .DS_Store
 Thumbs.db
 
-# 输出文件
+# Output files
 compile_commands.json
-*.json
+output*.json
+mock_*.json
+gcc_output.json
+normal_output.json

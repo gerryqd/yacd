@@ -76,7 +76,7 @@ func TestRunGenerateSuccess(t *testing.T) {
 			}
 
 			// Prepare options
-			opts, err := PrepareOptions(options.InputFile, options.OutputFile, options.MakeCommand, options.BaseDir, options.UseRelativePaths, options.Verbose)
+			opts, err := PrepareOptions(options.InputFile, options.OutputFile, options.MakeCommand, options.BaseDir, options.UseRelativePaths, options.Verbose, false)
 			if err != nil {
 				return err
 			}
@@ -234,7 +234,7 @@ func TestPrepareOptionsInRoot(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			options, err := PrepareOptions(tt.inputFile, tt.outputFile, tt.makeCommand, tt.baseDir, tt.useRelativePaths, tt.verbose)
+			options, err := PrepareOptions(tt.inputFile, tt.outputFile, tt.makeCommand, tt.baseDir, tt.useRelativePaths, tt.verbose, false)
 
 			if tt.expectError {
 				if err == nil {

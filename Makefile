@@ -84,11 +84,11 @@ vet:
 	@echo "Running static analysis..."
 	$(GO) vet ./...
 
-# Run golint (requires installation: go install golang.org/x/lint/golint@latest)
+# Run staticcheck (recommended: go install honnef.co/go/tools/cmd/staticcheck@latest)
 lint:
 	@echo "Running lint checks..."
-	@which golint > /dev/null || (echo "Please install golint first: go install golang.org/x/lint/golint@latest" && exit 1)
-	golint ./...
+	@which staticcheck > /dev/null || (echo "Please install staticcheck first: go install honnef.co/go/tools/cmd/staticcheck@latest" && exit 1)
+	staticcheck ./...
 
 # Install to GOPATH/bin
 install:

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -85,7 +86,7 @@ func TestValidateInputSources(t *testing.T) {
 					t.Errorf("ValidateInputSources() expected error, got nil")
 					return
 				}
-				if tt.errorContains != "" && !containsError(err.Error(), tt.errorContains) {
+				if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
 					t.Errorf("ValidateInputSources() error = %v, expected to contain %s", err, tt.errorContains)
 				}
 			} else {
@@ -98,38 +99,15 @@ func TestValidateInputSources(t *testing.T) {
 }
 
 func TestHasStdinData(t *testing.T) {
-	// Note: This test is challenging because HasStdinData() checks the actual stdin
-	// In a real test environment, stdin is typically attached to a terminal
-	// So we expect this to return false in most test scenarios
-
-	result := HasStdinData()
-
-	// In a normal test environment, stdin should be a character device (terminal)
-	// so HasStdinData should return false
-	if result {
-		t.Log("HasStdinData() returned true - this might indicate stdin is piped or redirected")
-	} else {
-		t.Log("HasStdinData() returned false - stdin appears to be a terminal")
-	}
-
-	// We don't assert a specific value here because the behavior depends on
-	// how the test is run (terminal vs piped input)
-}
-
-func TestHasStdinDataBehavior(t *testing.T) {
-	// Test that the function doesn't panic and returns a boolean
+	// Note: This test just verifies the function does not panic.
+	// The return value depends on the test environment (terminal vs piped input).
 	defer func() {
 		if r := recover(); r != nil {
 			t.Errorf("HasStdinData() panicked: %v", r)
 		}
 	}()
 
-	result := HasStdinData()
-
-	// Should return a boolean value (true or false)
-	if result != true && result != false {
-		t.Errorf("HasStdinData() should return a boolean, got: %v", result)
-	}
+	_ = HasStdinData()
 }
 
 func TestValidateInputSourcesEdgeCases(t *testing.T) {
@@ -152,14 +130,14 @@ func TestValidateInputSourcesEdgeCases(t *testing.T) {
 			inputFile:    "   ",
 			makeCommand:  "",
 			stdinHasData: false,
-			expectError:  false, // Non-empty string is considered valid
+			expectError:  true, // Whitespace-only is trimmed to empty
 		},
 		{
 			name:         "Whitespace only make command",
 			inputFile:    "",
 			makeCommand:  "   ",
 			stdinHasData: false,
-			expectError:  false, // Non-empty string is considered valid
+			expectError:  true, // Whitespace-only is trimmed to empty
 		},
 	}
 
@@ -174,29 +152,4 @@ func TestValidateInputSourcesEdgeCases(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Helper function to check if error message contains expected text
-func containsError(errorMsg, expected string) bool {
-	return len(errorMsg) > 0 && len(expected) > 0 &&
-		(errorMsg == expected ||
-			len(errorMsg) >= len(expected) &&
-				findInString(errorMsg, expected))
-}
-
-// Simple substring search
-func findInString(s, substr string) bool {
-	if len(substr) == 0 {
-		return true
-	}
-	if len(s) < len(substr) {
-		return false
-	}
-
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }

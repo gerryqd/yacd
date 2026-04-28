@@ -17,18 +17,33 @@ const (
 	makeDirLeavePattern = `^make(\[\d+\])?: Leaving directory '(.+)'`
 
 	// Common C/C++ compilers (simplified pattern)
-	// Updated to include cross-compiler patterns like arm-linux-gnueabi-gcc, mips64-octeon-linux-gnu-gcc, etc.
-	// This pattern matches both regular compilers (gcc) and cross-compilers (arm-linux-gnueabi-gcc)
 	commonCompilers = `(\w+-)*\w*-(gcc|g\+\+|clang|clang\+\+|cc)|\b(gcc|g\+\+|clang|clang\+\+|cc)\b`
+
+	// Shell command chain pattern
+	cdChainPattern = `^\s*cd\s+([^&]+)\s*&&\s*(.+)$`
+
+	// Backtick command substitution pattern
+	backtickPattern = "`([^`]*)`"
+
+	// Echo patterns for extracting paths
+	echoWithQuotesPattern    = `echo\s+['"]([^'"]+)['"]`
+	echoWithoutQuotesPattern = `echo\s+([^\s]+)`
+
+	// Shell redirection patterns
+	redirectionPatterns = `\s+2>&1|\s+>&1|\s+>\S+|\s+>>\S+|\s+<\S+|\s+2>\S+|\s+2>>\S+|\s+\d+>&\d+|\s+\d+>\S+|\s+\d+>>\S+`
 )
+
+// Pre-compiled regexes for redirection removal
+var redirectionRegex *regexp.Regexp
+
+func init() {
+	redirectionRegex = regexp.MustCompile(redirectionPatterns)
+}
 
 // Parser parser struct
 type Parser struct {
 	// Current working directory stack
 	dirStack []string
-
-	// Directory history to track all directories we've seen
-	directoryHistory []string
 
 	// Compiler detection regular expression
 	compilerRegex *regexp.Regexp
@@ -38,6 +53,12 @@ type Parser struct {
 
 	// Make directory exit regular expression
 	makeDirLeaveRegex *regexp.Regexp
+
+	// Pre-compiled regexes for command parsing
+	cdChainRegex           *regexp.Regexp
+	backtickRegex          *regexp.Regexp
+	echoQuotedRegex        *regexp.Regexp
+	echoUnquotedRegex      *regexp.Regexp
 
 	// Parse options
 	options types.ParseOptions
@@ -60,12 +81,35 @@ func NewParser(options types.ParseOptions) (*Parser, error) {
 		return nil, fmt.Errorf("make directory exit regex compilation failed: %w", err)
 	}
 
+	cdChainRegex, err := regexp.Compile(cdChainPattern)
+	if err != nil {
+		return nil, fmt.Errorf("cd chain regex compilation failed: %w", err)
+	}
+
+	backtickRegex, err := regexp.Compile(backtickPattern)
+	if err != nil {
+		return nil, fmt.Errorf("backtick regex compilation failed: %w", err)
+	}
+
+	echoQuotedRegex, err := regexp.Compile(echoWithQuotesPattern)
+	if err != nil {
+		return nil, fmt.Errorf("echo quoted regex compilation failed: %w", err)
+	}
+
+	echoUnquotedRegex, err := regexp.Compile(echoWithoutQuotesPattern)
+	if err != nil {
+		return nil, fmt.Errorf("echo unquoted regex compilation failed: %w", err)
+	}
+
 	return &Parser{
 		dirStack:          make([]string, 0),
-		directoryHistory:  make([]string, 0),
 		compilerRegex:     compilerRegex,
 		makeDirEnterRegex: makeDirEnterRegex,
 		makeDirLeaveRegex: makeDirLeaveRegex,
+		cdChainRegex:      cdChainRegex,
+		backtickRegex:     backtickRegex,
+		echoQuotedRegex:   echoQuotedRegex,
+		echoUnquotedRegex: echoUnquotedRegex,
 		options:           options,
 	}, nil
 }
@@ -115,8 +159,6 @@ func (p *Parser) handleDirectoryChange(line string) bool {
 	if matches := p.makeDirEnterRegex.FindStringSubmatch(line); matches != nil {
 		dir := matches[2]
 		p.dirStack = append(p.dirStack, dir)
-		// Also add to history
-		p.directoryHistory = append(p.directoryHistory, dir)
 		if p.options.Verbose {
 			fmt.Printf("Entering directory: %s\n", dir)
 		}
@@ -156,15 +198,10 @@ func (p *Parser) parseCompileCommand(line string) *types.MakeLogEntry {
 	return nil
 }
 
-// parseShellCommandChain handles shell command chains like "cd dir && gcc ..."
+// parseShellCommandChain handles shell command chains such as "cd dir && gcc ..."
 func (p *Parser) parseShellCommandChain(line string) *types.MakeLogEntry {
-	// Look for patterns like "cd <dir> && <compiler> ..."
-	cdPattern := regexp.MustCompile(`^\s*cd\s+([^&]+)\s*&&\s*(.+)$`)
-	matches := cdPattern.FindStringSubmatch(line)
+	matches := p.cdChainRegex.FindStringSubmatch(line)
 	if matches == nil {
-		if p.options.Verbose {
-			fmt.Printf("No shell command chain pattern matched for: %s\n", line)
-		}
 		return nil
 	}
 
@@ -176,7 +213,7 @@ func (p *Parser) parseShellCommandChain(line string) *types.MakeLogEntry {
 	}
 
 	// Parse the compiler command part without directory inference
-	entry := p.parseCompilerCommandOnly(compilerCommand)
+	entry := p.parseCompileCommandArgs(compilerCommand)
 	if entry == nil {
 		if p.options.Verbose {
 			fmt.Printf("Failed to parse compiler command: %s\n", compilerCommand)
@@ -192,9 +229,6 @@ func (p *Parser) parseShellCommandChain(line string) *types.MakeLogEntry {
 	newWorkingDir := p.resolveRelativePath(currentWorkingDir, cdDir)
 	entry.WorkingDir = newWorkingDir
 
-	// Don't modify source and output file paths here
-	// Let the generator handle path resolution based on the working directory
-
 	if p.options.Verbose {
 		fmt.Printf("Shell command parsed - Working dir: %s, Source: %s, Output: %s\n",
 			entry.WorkingDir, entry.SourceFile, entry.OutputFile)
@@ -203,8 +237,8 @@ func (p *Parser) parseShellCommandChain(line string) *types.MakeLogEntry {
 	return entry
 }
 
-// parseCompilerCommandOnly parses a compiler command without directory inference
-func (p *Parser) parseCompilerCommandOnly(line string) *types.MakeLogEntry {
+// parseCompileCommandArgs parses compiler arguments from a command line without setting working directory
+func (p *Parser) parseCompileCommandArgs(line string) *types.MakeLogEntry {
 	// Remove redirection operators before parsing
 	cleanLine := p.removeRedirectionOperators(line)
 
@@ -226,7 +260,6 @@ func (p *Parser) parseCompilerCommandOnly(line string) *types.MakeLogEntry {
 	compiler := args[0]
 
 	// Additional validation: check if the compiler looks like a real compiler
-	// Skip if it looks like a macro definition or source file
 	if p.isInvalidCompiler(compiler) {
 		return nil
 	}
@@ -238,12 +271,26 @@ func (p *Parser) parseCompilerCommandOnly(line string) *types.MakeLogEntry {
 	}
 
 	return &types.MakeLogEntry{
-		WorkingDir: "", // Will be set by caller
 		Compiler:   compiler,
 		Args:       args,
 		SourceFile: sourceFile,
 		OutputFile: outputFile,
 	}
+}
+
+// parseDirectCompileCommand parses direct compilation commands
+func (p *Parser) parseDirectCompileCommand(line string) *types.MakeLogEntry {
+	entry := p.parseCompileCommandArgs(line)
+	if entry == nil {
+		return nil
+	}
+
+	// Get current working directory from stack
+	if len(p.dirStack) > 0 {
+		entry.WorkingDir = p.dirStack[len(p.dirStack)-1]
+	}
+
+	return entry
 }
 
 // findCompilerStartIndex finds the start index of the actual compiler command
@@ -262,26 +309,23 @@ func (p *Parser) findCompilerStartIndex(line string) int {
 		// Check if it's a potential compiler name
 		if p.compilerRegex.MatchString(word) {
 			// Additional check: make sure it's not part of a macro definition like -DCPP_LOCATION="gcc"
-			// If previous word starts with -D, skip this word too
 			if i > 0 {
 				prevWord := words[i-1]
 				if strings.HasPrefix(prevWord, "-D") {
 					continue
 				}
 			}
-
 			// Found a compiler, calculate its position in the original line
-			// Reconstruct the prefix to find the exact position
-			prefix := ""
+			var prefix strings.Builder
 			for j := 0; j < i; j++ {
-				prefix += words[j] + " "
+				prefix.WriteString(words[j])
+				prefix.WriteByte(' ')
 			}
-			return len(prefix)
+			return prefix.Len()
 		}
 	}
 
 	// If no compiler found in words, try the direct approach
-	// This is needed when the entire line matches the compiler pattern
 	if p.compilerRegex.MatchString(line) {
 		return 0
 	}
@@ -294,60 +338,12 @@ func (p *Parser) resolveRelativePath(baseDir, relativePath string) string {
 	return pathutil.ResolveRelativePath(baseDir, relativePath)
 }
 
-// parseDirectCompileCommand parses direct compilation commands
-func (p *Parser) parseDirectCompileCommand(line string) *types.MakeLogEntry {
-	// Remove redirection operators before parsing
-	cleanLine := p.removeRedirectionOperators(line)
-
-	// Find the actual compiler in the command line
-	compilerStartIndex := p.findCompilerStartIndex(cleanLine)
-	if compilerStartIndex == -1 {
-		return nil
-	}
-
-	// Extract the compiler command part
-	compilerCommand := cleanLine[compilerStartIndex:]
-
-	// Split command line arguments
-	args := p.splitCommandLine(compilerCommand)
-	if len(args) == 0 {
-		return nil
-	}
-
-	compiler := args[0]
-
-	// Additional validation: check if the compiler looks like a real compiler
-	// Skip if it looks like a macro definition or source file
-	if p.isInvalidCompiler(compiler) {
-		return nil
-	}
-
-	// Find source file and output file
-	sourceFile, outputFile := p.extractFiles(args)
-	if sourceFile == "" {
-		return nil
-	}
-
-	// Get current working directory from stack
-	workingDir := ""
-	if len(p.dirStack) > 0 {
-		workingDir = p.dirStack[len(p.dirStack)-1]
-	}
-
-	return &types.MakeLogEntry{
-		WorkingDir: workingDir,
-		Compiler:   compiler,
-		Args:       args,
-		SourceFile: sourceFile,
-		OutputFile: outputFile,
-	}
-}
-
 // splitCommandLine splits command line, handling quotes and escape characters
 func (p *Parser) splitCommandLine(line string) []string {
 	var args []string
 	var current strings.Builder
-	inQuotes := false
+	inSingleQuotes := false
+	inDoubleQuotes := false
 	escaped := false
 
 	for i, char := range line {
@@ -356,10 +352,27 @@ func (p *Parser) splitCommandLine(line string) []string {
 			current.WriteRune(char)
 			escaped = false
 		case char == '\\':
-			escaped = true
-		case char == '"' || char == '\'':
-			inQuotes = !inQuotes
-		case char == ' ' && !inQuotes:
+			if inSingleQuotes {
+				// Backslash is literal inside single quotes
+				current.WriteRune(char)
+			} else {
+				escaped = true
+			}
+		case char == '\'':
+			if inDoubleQuotes {
+				// Single quote is literal inside double quotes
+				current.WriteRune(char)
+			} else {
+				inSingleQuotes = !inSingleQuotes
+			}
+		case char == '"':
+			if inSingleQuotes {
+				// Double quote is literal inside single quotes
+				current.WriteRune(char)
+			} else {
+				inDoubleQuotes = !inDoubleQuotes
+			}
+		case char == ' ' && !inSingleQuotes && !inDoubleQuotes:
 			if current.Len() > 0 {
 				args = append(args, current.String())
 				current.Reset()
@@ -405,40 +418,18 @@ func (p *Parser) removeRedirectionOperators(line string) string {
 	// First, process backtick command substitutions to extract path information
 	cleanLine := p.processBacktickSubstitution(line)
 
-	// Common redirection patterns to remove
-	// Use word boundaries and more precise matching
-	redirectionPatterns := []string{
-		`\s+2>&1`,     // stderr to stdout
-		`\s+>&1`,      // stdout to fd 1
-		`\s+>\S+`,     // stdout to file
-		`\s+>>\S+`,    // stdout append to file
-		`\s+<\S+`,     // stdin from file
-		`\s+2>\S+`,    // stderr to file
-		`\s+2>>\S+`,   // stderr append to file
-		`\s+\d+>&\d+`, // fd redirection
-		`\s+\d+>\S+`,  // numbered fd to file
-		`\s+\d+>>\S+`, // numbered fd append to file
-		`\s+2>&1$`,    // stderr to stdout at end
-		`\s+>&1$`,     // stdout to fd 1 at end
-	}
-
-	for _, pattern := range redirectionPatterns {
-		re := regexp.MustCompile(pattern)
-		cleanLine = re.ReplaceAllString(cleanLine, "")
-	}
+	// Remove all redirection patterns using pre-compiled regex
+	cleanLine = redirectionRegex.ReplaceAllString(cleanLine, "")
 
 	return strings.TrimSpace(cleanLine)
 }
 
 // processBacktickSubstitution processes backtick command substitutions and extracts path information
 func (p *Parser) processBacktickSubstitution(line string) string {
-	// Pattern to match backtick command substitutions
-	backtickPattern := regexp.MustCompile("`([^`]*)`")
-
-	// Find all backtick matches
-	matches := backtickPattern.FindAllStringSubmatch(line, -1)
+	// Find all backtick matches using pre-compiled regex
+	matches := p.backtickRegex.FindAllStringSubmatch(line, -1)
 	if len(matches) == 0 {
-		return line // No backticks found
+		return line
 	}
 
 	result := line
@@ -448,7 +439,6 @@ func (p *Parser) processBacktickSubstitution(line string) string {
 
 		// Extract path from echo command
 		if extractedPath := p.extractPathFromCommand(command); extractedPath != "" {
-			// Ensure there's a space between path and following content if needed
 			replacementText := extractedPath
 			// Check if the character after the backtick is a letter/digit (indicating a filename)
 			backtickEndIndex := strings.Index(result, fullMatch) + len(fullMatch)
@@ -456,15 +446,12 @@ func (p *Parser) processBacktickSubstitution(line string) string {
 				(result[backtickEndIndex] >= 'a' && result[backtickEndIndex] <= 'z' ||
 					result[backtickEndIndex] >= 'A' && result[backtickEndIndex] <= 'Z' ||
 					result[backtickEndIndex] >= '0' && result[backtickEndIndex] <= '9') {
-				// Add a space if path doesn't end with / and next char is alphanumeric
 				if !strings.HasSuffix(extractedPath, "/") {
 					replacementText = extractedPath + " "
 				}
 			}
-			// Replace the backtick part with the extracted path
 			result = strings.Replace(result, fullMatch, replacementText, 1)
 		} else {
-			// If no path found, remove the backtick part
 			result = strings.Replace(result, fullMatch, "", 1)
 		}
 	}
@@ -473,20 +460,15 @@ func (p *Parser) processBacktickSubstitution(line string) string {
 }
 
 // extractPathFromCommand extracts path from shell command like "test -f 'file' || echo 'path'"
-// NOTE: This function assumes the command is in the form of "test -f 'file' || echo 'path'"
-//
-//	and this is only a workaround, which works well in quite a few cases.
 func (p *Parser) extractPathFromCommand(command string) string {
 	// Pattern to match "echo 'path'" or "echo \"path\""
-	echoPattern := regexp.MustCompile(`echo\s+['"]([^'"]+)['"]`)
-	matches := echoPattern.FindStringSubmatch(command)
+	matches := p.echoQuotedRegex.FindStringSubmatch(command)
 	if len(matches) > 1 {
 		return matches[1]
 	}
 
 	// Pattern to match "echo path" (without quotes)
-	echoPatternNoQuotes := regexp.MustCompile(`echo\s+([^\s]+)`)
-	matches = echoPatternNoQuotes.FindStringSubmatch(command)
+	matches = p.echoUnquotedRegex.FindStringSubmatch(command)
 	if len(matches) > 1 {
 		return matches[1]
 	}
@@ -494,15 +476,20 @@ func (p *Parser) extractPathFromCommand(command string) string {
 	return ""
 }
 
+// GetCurrentDirectory gets current working directory
+func (p *Parser) GetCurrentDirectory() string {
+	if len(p.dirStack) == 0 {
+		return ""
+	}
+	return p.dirStack[len(p.dirStack)-1]
+}
+
 // isInvalidCompiler checks if the compiler name is likely not a real compiler
-// This helps filter out false positives like -DCPP_LOCATION or source files
 func (p *Parser) isInvalidCompiler(compiler string) bool {
-	// Check if it looks like a macro definition
 	if strings.HasPrefix(compiler, "-D") {
 		return true
 	}
 
-	// Check if it looks like a source file (has common source file extensions)
 	if strings.HasSuffix(compiler, ".cc") ||
 		strings.HasSuffix(compiler, ".cpp") ||
 		strings.HasSuffix(compiler, ".c") ||
@@ -514,7 +501,6 @@ func (p *Parser) isInvalidCompiler(compiler string) bool {
 		return true
 	}
 
-	// Check if it contains common file extensions that indicate it's not a compiler
 	if strings.Contains(compiler, ".yy.tab.") ||
 		strings.Contains(compiler, ".tab.") ||
 		strings.Contains(compiler, ".lex.") {
@@ -524,20 +510,8 @@ func (p *Parser) isInvalidCompiler(compiler string) bool {
 	return false
 }
 
-// GetCurrentDirectory gets current working directory
-func (p *Parser) GetCurrentDirectory() string {
-	if len(p.dirStack) == 0 {
-		return ""
-	}
-	return p.dirStack[len(p.dirStack)-1]
-}
-
-// ParseMakeLog is a convenience function to parse make log with default options
-func ParseMakeLog(reader io.Reader, verbose bool) ([]types.MakeLogEntry, error) {
-	options := types.ParseOptions{
-		Verbose: verbose,
-	}
-
+// ParseMakeLog is a convenience function to parse make log with full options
+func ParseMakeLog(reader io.Reader, options types.ParseOptions) ([]types.MakeLogEntry, error) {
 	parser, err := NewParser(options)
 	if err != nil {
 		return nil, err

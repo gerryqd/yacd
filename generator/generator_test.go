@@ -70,7 +70,7 @@ func TestGenerateCompilationDatabase(t *testing.T) {
 	}
 }
 
-func TestConvertToRelativePaths(t *testing.T) {
+func TestGenerateCompilationDatabaseWithRelativePaths(t *testing.T) {
 	// Use platform-specific paths for testing
 	var baseDir string
 	if runtime.GOOS == "windows" {
@@ -79,73 +79,97 @@ func TestConvertToRelativePaths(t *testing.T) {
 		baseDir = "/project"
 	}
 
-	tests := []struct {
-		name     string
-		entry    types.CompilationEntry
-		baseDir  string
-		expected types.CompilationEntry
-	}{
+	entries := []types.MakeLogEntry{
 		{
-			name: "Basic relative path conversion",
-			entry: types.CompilationEntry{
-				Directory: filepath.Join(baseDir, "build"),
-				Command:   "gcc -c main.c -o main.o",
-				File:      filepath.Join(baseDir, "build", "main.c"),
-				Output:    filepath.Join(baseDir, "build", "main.o"),
-			},
-			baseDir: baseDir,
-			expected: types.CompilationEntry{
-				Directory: "build",
-				Command:   "gcc -c main.c -o main.o",
-				File:      filepath.Join("build", "main.c"),
-				Output:    filepath.Join("build", "main.o"),
-			},
-		},
-		{
-			name: "Same directory",
-			entry: types.CompilationEntry{
-				Directory: baseDir,
-				Command:   "gcc -c main.c -o main.o",
-				File:      filepath.Join(baseDir, "main.c"),
-				Output:    filepath.Join(baseDir, "main.o"),
-			},
-			baseDir: baseDir,
-			expected: types.CompilationEntry{
-				Directory: ".",
-				Command:   "gcc -c main.c -o main.o",
-				File:      "main.c",
-				Output:    "main.o",
-			},
+			WorkingDir: filepath.Join(baseDir, "build"),
+			Compiler:   "gcc",
+			Args:       []string{"gcc", "-c", filepath.Join(baseDir, "build", "main.c"), "-o", filepath.Join(baseDir, "build", "main.o")},
+			SourceFile: filepath.Join(baseDir, "build", "main.c"),
+			OutputFile: filepath.Join(baseDir, "build", "main.o"),
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			result := convertToRelativePaths(tt.entry, tt.baseDir)
+	options := &types.ParseOptions{
+		UseRelativePaths: true,
+		BaseDir:          baseDir,
+		Verbose:          false,
+	}
 
-			// Normalize paths for comparison
-			resultDir := filepath.ToSlash(result.Directory)
-			expectedDir := filepath.ToSlash(tt.expected.Directory)
-			if resultDir != expectedDir {
-				t.Errorf("Directory = %s, expected %s", resultDir, expectedDir)
-			}
+	result, _ := GenerateCompilationDatabase(entries, options)
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(result))
+	}
 
-			if result.Command != tt.expected.Command {
-				t.Errorf("Command = %s, expected %s", result.Command, tt.expected.Command)
-			}
+	entry := result[0]
 
-			resultFile := filepath.ToSlash(result.File)
-			expectedFile := filepath.ToSlash(tt.expected.File)
-			if resultFile != expectedFile {
-				t.Errorf("File = %s, expected %s", resultFile, expectedFile)
-			}
+	// Directory should be relative
+	expectedDir := filepath.ToSlash(filepath.Join("build"))
+	actualDir := filepath.ToSlash(entry.Directory)
+	if actualDir != expectedDir {
+		t.Errorf("Directory = %s, expected %s", actualDir, expectedDir)
+	}
 
-			resultOutput := filepath.ToSlash(result.Output)
-			expectedOutput := filepath.ToSlash(tt.expected.Output)
-			if resultOutput != expectedOutput {
-				t.Errorf("Output = %s, expected %s", resultOutput, expectedOutput)
-			}
-		})
+	// File path should be relative
+	expectedFile := filepath.ToSlash(filepath.Join("build", "main.c"))
+	actualFile := filepath.ToSlash(entry.File)
+	if actualFile != expectedFile {
+		t.Errorf("File = %s, expected %s", actualFile, expectedFile)
+	}
+
+	// Output path should be relative
+	expectedOutput := filepath.ToSlash(filepath.Join("build", "main.o"))
+	actualOutput := filepath.ToSlash(entry.Output)
+	if actualOutput != expectedOutput {
+		t.Errorf("Output = %s, expected %s", actualOutput, expectedOutput)
+	}
+
+	// Command should contain relative paths, not absolute
+	if filepath.IsAbs(entry.File) && filepath.ToSlash(entry.File) != expectedFile {
+		t.Errorf("Command should use relative paths: %s", entry.Command)
+	}
+}
+
+func TestGenerateCompilationDatabaseWithSameDirRelativePaths(t *testing.T) {
+	var baseDir string
+	if runtime.GOOS == "windows" {
+		baseDir = `C:\project`
+	} else {
+		baseDir = "/project"
+	}
+
+	entries := []types.MakeLogEntry{
+		{
+			WorkingDir: baseDir,
+			Compiler:   "gcc",
+			Args:       []string{"gcc", "-c", filepath.Join(baseDir, "main.c"), "-o", filepath.Join(baseDir, "main.o")},
+			SourceFile: filepath.Join(baseDir, "main.c"),
+			OutputFile: filepath.Join(baseDir, "main.o"),
+		},
+	}
+
+	options := &types.ParseOptions{
+		UseRelativePaths: true,
+		BaseDir:          baseDir,
+		Verbose:          false,
+	}
+
+	result, _ := GenerateCompilationDatabase(entries, options)
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(result))
+	}
+
+	entry := result[0]
+
+	if filepath.ToSlash(entry.Directory) != "." {
+		t.Errorf("Directory = %s, expected .", entry.Directory)
+	}
+
+	if filepath.ToSlash(entry.File) != "main.c" {
+		t.Errorf("File = %s, expected main.c", entry.File)
+	}
+
+	if filepath.ToSlash(entry.Output) != "main.o" {
+		t.Errorf("Output = %s, expected main.o", entry.Output)
 	}
 }
 

@@ -58,4 +58,7 @@ type ParseOptions struct {
 
 	// Whether to enable verbose output
 	Verbose bool
+
+	// Whether to add compiler sysroot include path to commands
+	AddSysroot bool
 }
