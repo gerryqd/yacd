@@ -10,14 +10,14 @@ import (
 	"sync"
 
 	"github.com/gerryqd/yacd/types"
-	"github.com/gerryqd/yacd/utils/errorutil"
-	"github.com/gerryqd/yacd/utils/termutil"
 )
 
 // Global cache for compiler sysroots
 var (
 	compilerSysrootCache = make(map[string]string)
 	cacheMutex           sync.RWMutex
+
+	noColor = os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb"
 )
 
 // GenerateCompilationDatabase converts parsed make log entries to compilation database entries
@@ -90,7 +90,7 @@ func GenerateCompilationDatabase(entries []types.MakeLogEntry, options *types.Pa
 
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
 			missingFiles++
-			if termutil.NoColor() {
+			if noColor {
 				fmt.Printf("Warning: source file does not exist: %s (entry %d)\n", compilationEntry.File, i+1)
 			} else {
 				fmt.Printf("\033[33mWarning:\033[0m source file does not exist: %s (entry %d)\n", compilationEntry.File, i+1)
@@ -208,19 +208,19 @@ func addSysrootIncludePath(command string, compiler string) string {
 func WriteCompilationDatabase(compilationDB []types.CompilationEntry, outputFile string) error {
 	data, err := json.MarshalIndent(compilationDB, "", "  ")
 	if err != nil {
-		return errorutil.WrapError(err, "failed to marshal compilation database to JSON")
+		return fmt.Errorf("failed to marshal compilation database to JSON: %w", err)
 	}
 	data = append(data, '\n')
 
 	// Write to temporary file first, then rename for atomic write
 	tmpFile := outputFile + ".tmp"
 	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
-		return errorutil.WrapFileError(err, "write", tmpFile)
+		return fmt.Errorf("failed to write file %s: %w", tmpFile, err)
 	}
 
 	if err := os.Rename(tmpFile, outputFile); err != nil {
 		os.Remove(tmpFile)
-		return errorutil.WrapFileError(err, "rename to", outputFile)
+		return fmt.Errorf("failed to rename to file %s: %w", outputFile, err)
 	}
 
 	return nil

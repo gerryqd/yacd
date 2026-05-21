@@ -4,11 +4,11 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/gerryqd/yacd/types"
-	"github.com/gerryqd/yacd/utils/pathutil"
 )
 
 const (
@@ -335,7 +335,10 @@ func (p *Parser) findCompilerStartIndex(line string) int {
 
 // resolveRelativePath resolves a relative path against a base directory
 func (p *Parser) resolveRelativePath(baseDir, relativePath string) string {
-	return pathutil.ResolveRelativePath(baseDir, relativePath)
+	if filepath.IsAbs(relativePath) {
+		return relativePath
+	}
+	return filepath.Join(baseDir, relativePath)
 }
 
 // splitCommandLine splits command line, handling quotes and escape characters
@@ -410,8 +413,16 @@ func (p *Parser) extractFiles(args []string) (sourceFile, outputFile string) {
 
 // isSourceFile determines if it is a source file
 func (p *Parser) isSourceFile(filename string) bool {
-	return pathutil.IsSourceFile(filename)
+	ext := strings.ToLower(filepath.Ext(filename))
+	for _, validExt := range sourceExts {
+		if ext == validExt {
+			return true
+		}
+	}
+	return false
 }
+
+var sourceExts = []string{".c", ".cpp", ".cc", ".cxx", ".c++", ".s", ".S", ".asm"}
 
 // removeRedirectionOperators removes shell redirection operators and processes backtick command substitutions from command line
 func (p *Parser) removeRedirectionOperators(line string) string {

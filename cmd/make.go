@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/gerryqd/yacd/types"
-	"github.com/gerryqd/yacd/utils/errorutil"
 )
 
 // ExecuteMakeCommand executes a make command with -Bnkw flags
@@ -14,12 +13,12 @@ func ExecuteMakeCommand(makeCmd string) (*exec.Cmd, error) {
 	// Split the command into parts
 	parts := strings.Fields(makeCmd)
 	if len(parts) == 0 {
-		return nil, errorutil.NewError("empty make command")
+		return nil, fmt.Errorf("empty make command")
 	}
 
 	// Ensure the command starts with "make"
 	if parts[0] != "make" {
-		return nil, errorutil.NewError("make command must start with 'make'")
+		return nil, fmt.Errorf("make command must start with 'make'")
 	}
 
 	// Add -Bnkw flags at the beginning (after "make")

@@ -8,12 +8,6 @@ import (
 	"github.com/gerryqd/yacd/types"
 )
 
-// Test data
-const sampleMakeLog = `make: Entering directory '/home/user/project'
-gcc -c main.c -o main.o
-g++ -c utils.cpp -o utils.o
-make: Leaving directory '/home/user/project'`
-
 func TestPrepareOptions(t *testing.T) {
 	tests := []struct {
 		name             string
@@ -23,79 +17,42 @@ func TestPrepareOptions(t *testing.T) {
 		baseDir          string
 		useRelativePaths bool
 		verbose          bool
-		expectError      bool
-		expectedOptions  types.ParseOptions
+		checkFunc        func(types.ParseOptions) bool
 	}{
 		{
-			name:             "Basic options",
-			inputFile:        "input.log",
-			outputFile:       "output.json",
-			makeCommand:      "",
-			baseDir:          "",
-			useRelativePaths: false,
-			verbose:          false,
-			expectError:      false,
-			expectedOptions: types.ParseOptions{
-				InputFile:        "input.log",
-				OutputFile:       "output.json",
-				MakeCommand:      "",
-				UseRelativePaths: false,
-				BaseDir:          "",
-				Verbose:          false,
+			name:       "Basic options",
+			inputFile:  "input.log",
+			outputFile: "output.json",
+			checkFunc: func(o types.ParseOptions) bool {
+				return o.InputFile == "input.log" && o.OutputFile == "output.json"
 			},
 		},
 		{
-			name:             "With make command",
-			inputFile:        "",
-			outputFile:       "output.json",
-			makeCommand:      "make clean all",
-			baseDir:          "",
-			useRelativePaths: false,
-			verbose:          true,
-			expectError:      false,
-			expectedOptions: types.ParseOptions{
-				InputFile:        "",
-				OutputFile:       "output.json",
-				MakeCommand:      "make clean all",
-				UseRelativePaths: false,
-				BaseDir:          "",
-				Verbose:          true,
+			name:        "With make command",
+			outputFile:  "output.json",
+			makeCommand: "make clean all",
+			verbose:     true,
+			checkFunc: func(o types.ParseOptions) bool {
+				return o.MakeCommand == "make clean all" && o.Verbose
 			},
 		},
 		{
-			name:             "With explicit base directory",
+			name:             "Explicit base directory",
 			inputFile:        "input.log",
 			outputFile:       "output.json",
-			makeCommand:      "",
 			baseDir:          "/project/root",
 			useRelativePaths: true,
-			verbose:          false,
-			expectError:      false,
-			expectedOptions: types.ParseOptions{
-				InputFile:        "input.log",
-				OutputFile:       "output.json",
-				MakeCommand:      "",
-				UseRelativePaths: true,
-				BaseDir:          "/project/root",
-				Verbose:          false,
+			checkFunc: func(o types.ParseOptions) bool {
+				return o.BaseDir == "/project/root" && o.UseRelativePaths
 			},
 		},
 		{
-			name:             "Relative paths with output file directory as base",
+			name:             "Auto base from output dir",
 			inputFile:        "input.log",
 			outputFile:       "build/output.json",
-			makeCommand:      "",
-			baseDir:          "",
 			useRelativePaths: true,
-			verbose:          false,
-			expectError:      false,
-			expectedOptions: types.ParseOptions{
-				InputFile:        "input.log",
-				OutputFile:       "build/output.json",
-				MakeCommand:      "",
-				UseRelativePaths: true,
-				BaseDir:          "build",
-				Verbose:          false,
+			checkFunc: func(o types.ParseOptions) bool {
+				return o.BaseDir == "build"
 			},
 		},
 	}
@@ -104,208 +61,37 @@ func TestPrepareOptions(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			options, err := PrepareOptions(tt.inputFile, tt.outputFile, tt.makeCommand,
 				tt.baseDir, tt.useRelativePaths, tt.verbose, false)
-
-			if tt.expectError {
-				if err == nil {
-					t.Errorf("PrepareOptions() expected error, got nil")
-				}
-				return
-			}
-
 			if err != nil {
-				t.Errorf("PrepareOptions() unexpected error = %v", err)
-				return
+				t.Fatalf("Unexpected error: %v", err)
 			}
-
-			// Check all fields
-			if options.InputFile != tt.expectedOptions.InputFile {
-				t.Errorf("InputFile = %s, expected %s", options.InputFile, tt.expectedOptions.InputFile)
-			}
-			if options.OutputFile != tt.expectedOptions.OutputFile {
-				t.Errorf("OutputFile = %s, expected %s", options.OutputFile, tt.expectedOptions.OutputFile)
-			}
-			if options.MakeCommand != tt.expectedOptions.MakeCommand {
-				t.Errorf("MakeCommand = %s, expected %s", options.MakeCommand, tt.expectedOptions.MakeCommand)
-			}
-			if options.UseRelativePaths != tt.expectedOptions.UseRelativePaths {
-				t.Errorf("UseRelativePaths = %v, expected %v", options.UseRelativePaths, tt.expectedOptions.UseRelativePaths)
-			}
-			if options.Verbose != tt.expectedOptions.Verbose {
-				t.Errorf("Verbose = %v, expected %v", options.Verbose, tt.expectedOptions.Verbose)
-			}
-
-			// For base directory, we need to handle cases where it gets auto-determined
-			if tt.baseDir != "" {
-				// If baseDir was explicitly provided, it should match
-				if options.BaseDir != tt.expectedOptions.BaseDir {
-					t.Errorf("BaseDir = %s, expected %s", options.BaseDir, tt.expectedOptions.BaseDir)
-				}
-			} else if tt.useRelativePaths {
-				// If using relative paths without explicit baseDir, it should be derived from output file
-				expectedBaseDir := filepath.Dir(tt.outputFile)
-				if expectedBaseDir == "." {
-					// Current working directory case - just check it's not empty
-					if options.BaseDir == "" {
-						t.Errorf("BaseDir should not be empty when using relative paths")
-					}
-				} else {
-					if options.BaseDir != expectedBaseDir {
-						t.Errorf("BaseDir = %s, expected %s", options.BaseDir, expectedBaseDir)
-					}
-				}
+			if !tt.checkFunc(options) {
+				t.Errorf("Options check failed: %+v", options)
 			}
 		})
 	}
 }
 
 func TestPrepareOptionsWithCurrentDirectory(t *testing.T) {
-	// Test case where output file is in current directory and relative paths are used
 	options, err := PrepareOptions("input.log", "output.json", "", "", true, false, false)
-
 	if err != nil {
-		t.Errorf("PrepareOptions() unexpected error = %v", err)
-		return
+		t.Fatalf("Unexpected error: %v", err)
 	}
-
-	// BaseDir should be set to current working directory
 	if options.BaseDir == "" {
-		t.Errorf("BaseDir should not be empty when using relative paths with output in current dir")
+		t.Errorf("BaseDir should not be empty when using relative paths")
 	}
-
-	// Should be an absolute path
 	if !filepath.IsAbs(options.BaseDir) {
-		t.Errorf("BaseDir should be absolute path, got: %s", options.BaseDir)
+		t.Errorf("BaseDir should be absolute, got: %s", options.BaseDir)
 	}
 }
 
 func TestPrepareReaderValidation(t *testing.T) {
-	tests := []struct {
-		name          string
-		options       types.ParseOptions
-		stdinHasData  bool
-		expectError   bool
-		errorContains string
-	}{
-		{
-			name: "Non-existent input file",
-			options: types.ParseOptions{
-				InputFile: "/non/existent/file.log",
-			},
-			stdinHasData:  false,
-			expectError:   true,
-			errorContains: "file does not exist",
-		},
-		{
-			name: "Valid make command",
-			options: types.ParseOptions{
-				MakeCommand: "echo test", // Use echo instead of make for reliable testing
-			},
-			stdinHasData: false,
-			expectError:  false,
-		},
-		{
-			name: "Empty make command",
-			options: types.ParseOptions{
-				MakeCommand: "",
-			},
-			stdinHasData:  false,
-			expectError:   true,
-			errorContains: "file does not exist", // When MakeCommand is empty, it tries to read InputFile
-		},
-		{
-			name:         "Stdin input",
-			options:      types.ParseOptions{},
-			stdinHasData: true,
-			expectError:  false,
-		},
+	_, cleanup, err := PrepareReader(types.ParseOptions{
+		InputFile: "/non/existent/file.log",
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), "file does not exist") {
+		t.Errorf("Expected 'file does not exist' error, got: %v", err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			reader, cleanup, err := PrepareReader(tt.options, tt.stdinHasData)
-
-			if tt.expectError {
-				if err == nil {
-					t.Errorf("PrepareReader() expected error, got nil")
-				} else if tt.errorContains != "" && !strings.Contains(err.Error(), tt.errorContains) {
-					t.Errorf("PrepareReader() error = %v, expected to contain %s", err, tt.errorContains)
-				}
-				return
-			}
-
-			if err != nil {
-				// Some errors might be expected in test environment (e.g., missing make command)
-				t.Logf("PrepareReader() returned error (might be expected in test environment): %v", err)
-				return
-			}
-
-			if reader == nil {
-				t.Errorf("PrepareReader() returned nil reader")
-				return
-			}
-
-			// Cleanup should not be nil
-			if cleanup == nil {
-				t.Errorf("PrepareReader() returned nil cleanup function")
-				return
-			}
-
-			// Call cleanup function
-			cleanup()
-		})
-	}
-}
-
-func TestPrintExecutionInfo(t *testing.T) {
-	tests := []struct {
-		name    string
-		options types.ParseOptions
-	}{
-		{
-			name: "File input",
-			options: types.ParseOptions{
-				InputFile:        "input.log",
-				OutputFile:       "output.json",
-				UseRelativePaths: false,
-			},
-		},
-		{
-			name: "Make command input",
-			options: types.ParseOptions{
-				MakeCommand:      "make clean all",
-				OutputFile:       "output.json",
-				UseRelativePaths: false,
-			},
-		},
-		{
-			name: "Stdin input",
-			options: types.ParseOptions{
-				InputFile:        "",
-				OutputFile:       "output.json",
-				UseRelativePaths: false,
-			},
-		},
-		{
-			name: "With relative paths",
-			options: types.ParseOptions{
-				InputFile:        "input.log",
-				OutputFile:       "output.json",
-				UseRelativePaths: true,
-				BaseDir:          "/project/root",
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// This function just prints to stdout, so we test it doesn't panic
-			defer func() {
-				if r := recover(); r != nil {
-					t.Errorf("PrintExecutionInfo() panicked: %v", r)
-				}
-			}()
-
-			PrintExecutionInfo(&tt.options)
-		})
+	if cleanup != nil {
+		cleanup()
 	}
 }

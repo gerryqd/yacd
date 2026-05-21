@@ -1,10 +1,9 @@
 package cmd
 
 import (
+	"fmt"
 	"os"
 	"strings"
-
-	"github.com/gerryqd/yacd/utils/errorutil"
 )
 
 // ValidateInputSources validates that exactly one input source is provided
@@ -27,10 +26,10 @@ func ValidateInputSources(inputFile, makeCommand string, stdinHasData bool) erro
 
 	// Must have exactly one input source
 	if inputCount == 0 {
-		return errorutil.NewError("no input source provided, please specify one of: -i/--input, -n/--dry-run, or provide input via stdin")
+		return fmt.Errorf("no input source provided, please specify one of: -i/--input, -n/--dry-run, or provide input via stdin")
 	}
 	if inputCount > 1 {
-		return errorutil.NewError("multiple input sources provided, please specify only one of: -i/--input, -n/--dry-run, or stdin")
+		return fmt.Errorf("multiple input sources provided, please specify only one of: -i/--input, -n/--dry-run, or stdin")
 	}
 
 	return nil
