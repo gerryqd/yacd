@@ -21,18 +21,18 @@ func ExecuteGeneration(options *types.ParseOptions, reader io.Reader) error {
 		return fmt.Errorf("failed to parse make log: %w", err)
 	}
 
-	compilationDB, warningCount := generator.GenerateCompilationDatabase(entries, options)
+	compilationDB, missingFiles := generator.GenerateCompilationDatabase(entries, options)
 
 	if err := generator.WriteCompilationDatabase(compilationDB, options.OutputFile); err != nil {
 		return fmt.Errorf("failed to write file %s: %w", options.OutputFile, err)
 	}
 
 	fmt.Println(strings.Repeat("-", 50))
-	if warningCount > 0 {
+	if len(missingFiles) > 0 {
 		if noColor {
-			fmt.Printf("Warning: %d entries have non-existent source files\n", warningCount)
+			fmt.Printf("Warning: %d entries have non-existent source files\n", len(missingFiles))
 		} else {
-			fmt.Printf("\033[33mWarning: %d entries have non-existent source files\033[0m\n", warningCount)
+			fmt.Printf("\033[33mWarning: %d entries have non-existent source files\033[0m\n", len(missingFiles))
 		}
 	}
 	if noColor {

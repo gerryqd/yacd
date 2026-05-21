@@ -16,14 +16,13 @@ import (
 var (
 	compilerSysrootCache = make(map[string]string)
 	cacheMutex           sync.RWMutex
-
-	noColor = os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb"
 )
 
-// GenerateCompilationDatabase converts parsed make log entries to compilation database entries
-func GenerateCompilationDatabase(entries []types.MakeLogEntry, options *types.ParseOptions) ([]types.CompilationEntry, int) {
+// GenerateCompilationDatabase converts parsed make log entries to compilation database entries.
+// Returns the compilation database and a list of missing source files.
+func GenerateCompilationDatabase(entries []types.MakeLogEntry, options *types.ParseOptions) ([]types.CompilationEntry, []string) {
 	var compilationDB []types.CompilationEntry
-	missingFiles := 0
+	var missingFiles []string
 
 	for i, entry := range entries {
 		// Build command args
@@ -75,7 +74,6 @@ func GenerateCompilationDatabase(entries []types.MakeLogEntry, options *types.Pa
 			compilationEntry.Command = addSysrootIncludePath(compilationEntry.Command, entry.Compiler)
 		}
 
-		// Add to database
 		compilationDB = append(compilationDB, compilationEntry)
 
 		// Check if source file exists
@@ -89,12 +87,7 @@ func GenerateCompilationDatabase(entries []types.MakeLogEntry, options *types.Pa
 		}
 
 		if _, err := os.Stat(filePath); os.IsNotExist(err) {
-			missingFiles++
-			if noColor {
-				fmt.Printf("Warning: source file does not exist: %s (entry %d)\n", compilationEntry.File, i+1)
-			} else {
-				fmt.Printf("\033[33mWarning:\033[0m source file does not exist: %s (entry %d)\n", compilationEntry.File, i+1)
-			}
+			missingFiles = append(missingFiles, fmt.Sprintf("%s (entry %d)", compilationEntry.File, i+1))
 		}
 
 		if options.Verbose {
@@ -125,10 +118,7 @@ func isValidPath(path string) bool {
 		return false
 	}
 
-	if strings.HasPrefix(path, "/") {
-		info, err := os.Stat(path)
-		return err == nil && info.IsDir()
-	} else if strings.HasPrefix(path, ".") || strings.HasPrefix(path, "..") {
+	if strings.HasPrefix(path, "/") || strings.HasPrefix(path, ".") {
 		info, err := os.Stat(path)
 		return err == nil && info.IsDir()
 	}
@@ -138,7 +128,6 @@ func isValidPath(path string) bool {
 
 // getCompilerSysroot returns the sysroot path for a given compiler
 func getCompilerSysroot(compilerPath string) (string, error) {
-	// Check cache first
 	cacheMutex.RLock()
 	if sysroot, exists := compilerSysrootCache[compilerPath]; exists {
 		cacheMutex.RUnlock()
@@ -146,7 +135,6 @@ func getCompilerSysroot(compilerPath string) (string, error) {
 	}
 	cacheMutex.RUnlock()
 
-	// Execute compiler with --print-sysroot option
 	cmd := exec.Command(compilerPath, "--print-sysroot")
 	output, err := cmd.Output()
 	if err != nil {
@@ -212,7 +200,6 @@ func WriteCompilationDatabase(compilationDB []types.CompilationEntry, outputFile
 	}
 	data = append(data, '\n')
 
-	// Write to temporary file first, then rename for atomic write
 	tmpFile := outputFile + ".tmp"
 	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
 		return fmt.Errorf("failed to write file %s: %w", tmpFile, err)

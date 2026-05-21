@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-
-	"github.com/gerryqd/yacd/types"
 )
 
 // ExecuteMakeCommand executes a make command with -Bnkw flags
@@ -27,26 +25,4 @@ func ExecuteMakeCommand(makeCmd string) (*exec.Cmd, error) {
 	// Create command
 	cmd := exec.Command(args[0], args[1:]...)
 	return cmd, nil
-}
-
-// PrintExecutionInfo prints execution information based on the input source
-func PrintExecutionInfo(options *types.ParseOptions) {
-	fmt.Println("yacd - Yet Another CompileDB")
-
-	// Print input source information
-	if options.InputFile != "" {
-		fmt.Printf("Input file: %s\n", options.InputFile)
-	} else if options.MakeCommand != "" {
-		fmt.Printf("Make command: %s\n", options.MakeCommand)
-	} else {
-		fmt.Println("Input source: stdin")
-	}
-
-	fmt.Printf("Output file: %s\n", options.OutputFile)
-
-	if options.UseRelativePaths {
-		fmt.Printf("Using relative paths, base directory: %s\n", options.BaseDir)
-	}
-
-	fmt.Println("Starting to parse...")
 }

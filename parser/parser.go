@@ -349,28 +349,25 @@ func (p *Parser) splitCommandLine(line string) []string {
 	inDoubleQuotes := false
 	escaped := false
 
-	for i, char := range line {
+	for _, char := range line {
 		switch {
 		case escaped:
 			current.WriteRune(char)
 			escaped = false
 		case char == '\\':
 			if inSingleQuotes {
-				// Backslash is literal inside single quotes
 				current.WriteRune(char)
 			} else {
 				escaped = true
 			}
 		case char == '\'':
 			if inDoubleQuotes {
-				// Single quote is literal inside double quotes
 				current.WriteRune(char)
 			} else {
 				inSingleQuotes = !inSingleQuotes
 			}
 		case char == '"':
 			if inSingleQuotes {
-				// Double quote is literal inside single quotes
 				current.WriteRune(char)
 			} else {
 				inDoubleQuotes = !inDoubleQuotes
@@ -383,11 +380,10 @@ func (p *Parser) splitCommandLine(line string) []string {
 		default:
 			current.WriteRune(char)
 		}
+	}
 
-		// Handle end of line case
-		if i == len(line)-1 && current.Len() > 0 {
-			args = append(args, current.String())
-		}
+	if current.Len() > 0 {
+		args = append(args, current.String())
 	}
 
 	return args
@@ -422,7 +418,7 @@ func (p *Parser) isSourceFile(filename string) bool {
 	return false
 }
 
-var sourceExts = []string{".c", ".cpp", ".cc", ".cxx", ".c++", ".s", ".S", ".asm"}
+var sourceExts = []string{".c", ".cpp", ".cc", ".cxx", ".c++", ".s", ".asm"}
 
 // removeRedirectionOperators removes shell redirection operators and processes backtick command substitutions from command line
 func (p *Parser) removeRedirectionOperators(line string) string {
@@ -485,14 +481,6 @@ func (p *Parser) extractPathFromCommand(command string) string {
 	}
 
 	return ""
-}
-
-// GetCurrentDirectory gets current working directory
-func (p *Parser) GetCurrentDirectory() string {
-	if len(p.dirStack) == 0 {
-		return ""
-	}
-	return p.dirStack[len(p.dirStack)-1]
 }
 
 // isInvalidCompiler checks if the compiler name is likely not a real compiler
