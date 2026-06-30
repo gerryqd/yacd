@@ -34,83 +34,45 @@ const (
 )
 
 // Pre-compiled regexes for redirection removal
-var redirectionRegex *regexp.Regexp
 
 func init() {
 	redirectionRegex = regexp.MustCompile(redirectionPatterns)
+	compilerRegex = regexp.MustCompile(commonCompilers)
+	makeDirEnterRegex = regexp.MustCompile(makeDirEnterPattern)
+	makeDirLeaveRegex = regexp.MustCompile(makeDirLeavePattern)
+	cdChainRegex = regexp.MustCompile(cdChainPattern)
+	backtickRegex = regexp.MustCompile(backtickPattern)
+	echoQuotedRegex = regexp.MustCompile(echoWithQuotesPattern)
+	echoUnquotedRegex = regexp.MustCompile(echoWithoutQuotesPattern)
+	dollarParenRegex = regexp.MustCompile(`\$\(([^)]*)\)`)
 }
+
+var (
+	redirectionRegex  *regexp.Regexp
+	compilerRegex     *regexp.Regexp
+	makeDirEnterRegex *regexp.Regexp
+	makeDirLeaveRegex *regexp.Regexp
+	cdChainRegex      *regexp.Regexp
+	backtickRegex     *regexp.Regexp
+	echoQuotedRegex   *regexp.Regexp
+	echoUnquotedRegex *regexp.Regexp
+	dollarParenRegex  *regexp.Regexp
+)
 
 // Parser parser struct
 type Parser struct {
-	// Current working directory stack
-	dirStack []string
-
-	// Compiler detection regular expression
-	compilerRegex *regexp.Regexp
-
-	// Make directory enter regular expression
-	makeDirEnterRegex *regexp.Regexp
-
-	// Make directory exit regular expression
-	makeDirLeaveRegex *regexp.Regexp
-
-	// Pre-compiled regexes for command parsing
-	cdChainRegex           *regexp.Regexp
-	backtickRegex          *regexp.Regexp
-	echoQuotedRegex        *regexp.Regexp
-	echoUnquotedRegex      *regexp.Regexp
-
 	// Parse options
 	options types.ParseOptions
+
+	// Current working directory stack
+	dirStack []string
 }
 
 // NewParser creates a new parser
 func NewParser(options types.ParseOptions) (*Parser, error) {
-	compilerRegex, err := regexp.Compile(commonCompilers)
-	if err != nil {
-		return nil, fmt.Errorf("compiler regex compilation failed: %w", err)
-	}
-
-	makeDirEnterRegex, err := regexp.Compile(makeDirEnterPattern)
-	if err != nil {
-		return nil, fmt.Errorf("make directory enter regex compilation failed: %w", err)
-	}
-
-	makeDirLeaveRegex, err := regexp.Compile(makeDirLeavePattern)
-	if err != nil {
-		return nil, fmt.Errorf("make directory exit regex compilation failed: %w", err)
-	}
-
-	cdChainRegex, err := regexp.Compile(cdChainPattern)
-	if err != nil {
-		return nil, fmt.Errorf("cd chain regex compilation failed: %w", err)
-	}
-
-	backtickRegex, err := regexp.Compile(backtickPattern)
-	if err != nil {
-		return nil, fmt.Errorf("backtick regex compilation failed: %w", err)
-	}
-
-	echoQuotedRegex, err := regexp.Compile(echoWithQuotesPattern)
-	if err != nil {
-		return nil, fmt.Errorf("echo quoted regex compilation failed: %w", err)
-	}
-
-	echoUnquotedRegex, err := regexp.Compile(echoWithoutQuotesPattern)
-	if err != nil {
-		return nil, fmt.Errorf("echo unquoted regex compilation failed: %w", err)
-	}
-
 	return &Parser{
-		dirStack:          make([]string, 0),
-		compilerRegex:     compilerRegex,
-		makeDirEnterRegex: makeDirEnterRegex,
-		makeDirLeaveRegex: makeDirLeaveRegex,
-		cdChainRegex:      cdChainRegex,
-		backtickRegex:     backtickRegex,
-		echoQuotedRegex:   echoQuotedRegex,
-		echoUnquotedRegex: echoUnquotedRegex,
-		options:           options,
+		dirStack: make([]string, 0),
+		options:  options,
 	}, nil
 }
 
@@ -156,7 +118,7 @@ func (p *Parser) ParseMakeLog(reader io.Reader) ([]types.MakeLogEntry, error) {
 // handleDirectoryChange handles directory changes
 func (p *Parser) handleDirectoryChange(line string) bool {
 	// Check if entering directory
-	if matches := p.makeDirEnterRegex.FindStringSubmatch(line); matches != nil {
+	if matches := makeDirEnterRegex.FindStringSubmatch(line); matches != nil {
 		dir := matches[2]
 		p.dirStack = append(p.dirStack, dir)
 		if p.options.Verbose {
@@ -166,7 +128,7 @@ func (p *Parser) handleDirectoryChange(line string) bool {
 	}
 
 	// Check if leaving directory
-	if matches := p.makeDirLeaveRegex.FindStringSubmatch(line); matches != nil {
+	if matches := makeDirLeaveRegex.FindStringSubmatch(line); matches != nil {
 		if len(p.dirStack) > 0 {
 			if p.options.Verbose {
 				fmt.Printf("Leaving directory: %s\n", p.dirStack[len(p.dirStack)-1])
@@ -187,7 +149,7 @@ func (p *Parser) parseCompileCommand(line string) *types.MakeLogEntry {
 	}
 
 	// Check for compiler command (simplified logic)
-	if p.compilerRegex.MatchString(line) {
+	if compilerRegex.MatchString(line) {
 		// Handle shell command chains with cd && compiler
 		if entry := p.parseShellCommandChain(line); entry != nil {
 			return entry
@@ -200,7 +162,7 @@ func (p *Parser) parseCompileCommand(line string) *types.MakeLogEntry {
 
 // parseShellCommandChain handles shell command chains such as "cd dir && gcc ..."
 func (p *Parser) parseShellCommandChain(line string) *types.MakeLogEntry {
-	matches := p.cdChainRegex.FindStringSubmatch(line)
+	matches := cdChainRegex.FindStringSubmatch(line)
 	if matches == nil {
 		return nil
 	}
@@ -252,7 +214,7 @@ func (p *Parser) parseCompileCommandArgs(line string) *types.MakeLogEntry {
 	compilerCommand := cleanLine[compilerStartIndex:]
 
 	// Split command line arguments
-	args := p.splitCommandLine(compilerCommand)
+	args := types.SplitCommandLine(compilerCommand)
 	if len(args) == 0 {
 		return nil
 	}
@@ -295,38 +257,44 @@ func (p *Parser) parseDirectCompileCommand(line string) *types.MakeLogEntry {
 
 // findCompilerStartIndex finds the start index of the actual compiler command
 func (p *Parser) findCompilerStartIndex(line string) int {
-	// Split the line into words to find the compiler
-	words := strings.Fields(line)
+	// Scan words in the line, tracking byte offset of each word
+	pos := 0
+	var prevWord string
+	for pos < len(line) {
+		// Skip leading whitespace
+		for pos < len(line) && line[pos] == ' ' {
+			pos++
+		}
+		if pos >= len(line) {
+			break
+		}
 
-	// Look for the compiler pattern in the words
-	// Skip words that are compiler flags like -D, -I, etc.
-	for i, word := range words {
-		// Skip if it's a compiler flag or option
+		// Extract next word
+		start := pos
+		for pos < len(line) && line[pos] != ' ' {
+			pos++
+		}
+		word := line[start:pos]
+
+		// Skip flags
 		if strings.HasPrefix(word, "-") {
+			prevWord = word
 			continue
 		}
 
-		// Check if it's a potential compiler name
-		if p.compilerRegex.MatchString(word) {
-			// Additional check: make sure it's not part of a macro definition like -DCPP_LOCATION="gcc"
-			if i > 0 {
-				prevWord := words[i-1]
-				if strings.HasPrefix(prevWord, "-D") {
-					continue
-				}
+		if compilerRegex.MatchString(word) {
+			// Skip if preceded by -D macro definition
+			if strings.HasPrefix(prevWord, "-D") {
+				prevWord = word
+				continue
 			}
-			// Found a compiler, calculate its position in the original line
-			var prefix strings.Builder
-			for j := 0; j < i; j++ {
-				prefix.WriteString(words[j])
-				prefix.WriteByte(' ')
-			}
-			return prefix.Len()
+			return start
 		}
+		prevWord = word
 	}
 
 	// If no compiler found in words, try the direct approach
-	if p.compilerRegex.MatchString(line) {
+	if compilerRegex.MatchString(line) {
 		return 0
 	}
 
@@ -339,54 +307,6 @@ func (p *Parser) resolveRelativePath(baseDir, relativePath string) string {
 		return relativePath
 	}
 	return filepath.Join(baseDir, relativePath)
-}
-
-// splitCommandLine splits command line, handling quotes and escape characters
-func (p *Parser) splitCommandLine(line string) []string {
-	var args []string
-	var current strings.Builder
-	inSingleQuotes := false
-	inDoubleQuotes := false
-	escaped := false
-
-	for _, char := range line {
-		switch {
-		case escaped:
-			current.WriteRune(char)
-			escaped = false
-		case char == '\\':
-			if inSingleQuotes {
-				current.WriteRune(char)
-			} else {
-				escaped = true
-			}
-		case char == '\'':
-			if inDoubleQuotes {
-				current.WriteRune(char)
-			} else {
-				inSingleQuotes = !inSingleQuotes
-			}
-		case char == '"':
-			if inSingleQuotes {
-				current.WriteRune(char)
-			} else {
-				inDoubleQuotes = !inDoubleQuotes
-			}
-		case char == ' ' && !inSingleQuotes && !inDoubleQuotes:
-			if current.Len() > 0 {
-				args = append(args, current.String())
-				current.Reset()
-			}
-		default:
-			current.WriteRune(char)
-		}
-	}
-
-	if current.Len() > 0 {
-		args = append(args, current.String())
-	}
-
-	return args
 }
 
 // extractFiles extracts source file and output file from arguments
@@ -422,8 +342,8 @@ var sourceExts = []string{".c", ".cpp", ".cc", ".cxx", ".c++", ".s", ".asm"}
 
 // removeRedirectionOperators removes shell redirection operators and processes backtick command substitutions from command line
 func (p *Parser) removeRedirectionOperators(line string) string {
-	// First, process backtick command substitutions to extract path information
-	cleanLine := p.processBacktickSubstitution(line)
+	// Process command substitutions to extract path information
+	cleanLine := p.processCommandSubstitution(line)
 
 	// Remove all redirection patterns using pre-compiled regex
 	cleanLine = redirectionRegex.ReplaceAllString(cleanLine, "")
@@ -431,10 +351,40 @@ func (p *Parser) removeRedirectionOperators(line string) string {
 	return strings.TrimSpace(cleanLine)
 }
 
+// processCommandSubstitution handles both $(...) and backtick `...` command
+// substitutions, extracting path information from embedded echo commands.
+func (p *Parser) processCommandSubstitution(line string) string {
+	// First handle $(...) substitutions
+	line = p.processDollarParenSubstitution(line)
+	// Then handle backtick `...` substitutions
+	line = p.processBacktickSubstitution(line)
+	return line
+}
+
+// processDollarParenSubstitution handles $(...) command substitution patterns
+func (p *Parser) processDollarParenSubstitution(line string) string {
+	matches := dollarParenRegex.FindAllStringSubmatch(line, -1)
+	if len(matches) == 0 {
+		return line
+	}
+
+	result := line
+	for _, match := range matches {
+		fullMatch := match[0]
+		command := match[1]
+		if extractedPath := p.extractPathFromCommand(command); extractedPath != "" {
+			result = strings.Replace(result, fullMatch, extractedPath, 1)
+		} else {
+			result = strings.Replace(result, fullMatch, "", 1)
+		}
+	}
+	return result
+}
+
 // processBacktickSubstitution processes backtick command substitutions and extracts path information
 func (p *Parser) processBacktickSubstitution(line string) string {
 	// Find all backtick matches using pre-compiled regex
-	matches := p.backtickRegex.FindAllStringSubmatch(line, -1)
+	matches := backtickRegex.FindAllStringSubmatch(line, -1)
 	if len(matches) == 0 {
 		return line
 	}
@@ -469,13 +419,13 @@ func (p *Parser) processBacktickSubstitution(line string) string {
 // extractPathFromCommand extracts path from shell command like "test -f 'file' || echo 'path'"
 func (p *Parser) extractPathFromCommand(command string) string {
 	// Pattern to match "echo 'path'" or "echo \"path\""
-	matches := p.echoQuotedRegex.FindStringSubmatch(command)
+	matches := echoQuotedRegex.FindStringSubmatch(command)
 	if len(matches) > 1 {
 		return matches[1]
 	}
 
 	// Pattern to match "echo path" (without quotes)
-	matches = p.echoUnquotedRegex.FindStringSubmatch(command)
+	matches = echoUnquotedRegex.FindStringSubmatch(command)
 	if len(matches) > 1 {
 		return matches[1]
 	}

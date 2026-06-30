@@ -44,12 +44,12 @@ func TestRunGenerateSuccess(t *testing.T) {
 				return err
 			}
 
-			opts, err := PrepareOptions(testInputFile, testOutputFile, "", "", false, testVerbose, false)
+			opts, err := PrepareOptions(testInputFile, testOutputFile, "", "", false, testVerbose, false, false, false)
 			if err != nil {
 				return err
 			}
 
-			reader, cleanup, err := PrepareReader(opts, stdinHasData)
+			reader, cleanup, err := PrepareReader(&opts, stdinHasData)
 			if err != nil {
 				return err
 			}

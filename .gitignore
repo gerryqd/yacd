@@ -26,3 +26,14 @@ output*.json
 mock_*.json
 gcc_output.json
 normal_output.json
+# Agent/tool config
+.roo/
+
+# Local test scratch files (mock/sample inputs and mock compiler)
+/arm-linux-gnueabi-gcc
+/mock_compiler.sh
+/mock_command.txt
+/mock_cross_command.txt
+/mock_cross_command_with_sysroot.txt
+/normal_gcc_command.txt
+/sample_command.txt

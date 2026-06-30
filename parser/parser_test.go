@@ -21,7 +21,7 @@ func TestNewParser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create parser: %v", err)
 	}
-	if p == nil || p.compilerRegex == nil || p.makeDirEnterRegex == nil || p.makeDirLeaveRegex == nil {
+	if p == nil {
 		t.Fatal("Parser or its regex fields should not be nil")
 	}
 }
@@ -93,8 +93,6 @@ func TestHandleDirectoryChange(t *testing.T) {
 }
 
 func TestSplitCommandLine(t *testing.T) {
-	p := newTestParser(t)
-
 	tests := []struct {
 		name     string
 		input    string
@@ -110,7 +108,7 @@ func TestSplitCommandLine(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := p.splitCommandLine(tt.input)
+			result := types.SplitCommandLine(tt.input)
 			if len(result) != len(tt.expected) {
 				t.Fatalf("Length = %d, expected %d\nGot: %v\nExp: %v", len(result), len(tt.expected), result, tt.expected)
 			}
@@ -158,9 +156,9 @@ func TestParseCompileCommand(t *testing.T) {
 	p.dirStack = append(p.dirStack, "/project/build")
 
 	tests := []struct {
-		name          string
-		line          string
-		expectNil     bool
+		name           string
+		line           string
+		expectNil      bool
 		expectCompiler string
 		expectSource   string
 		expectOutput   string
@@ -321,11 +319,11 @@ func TestRemoveRedirectionOperators(t *testing.T) {
 
 func TestShellCommandChain(t *testing.T) {
 	tests := []struct {
-		name     string
-		line     string
-		dir      string
-		source   string
-		output   string
+		name   string
+		line   string
+		dir    string
+		source string
+		output string
 	}{
 		{"cd and gcc", "cd src && gcc -c main.c -o main.o", "/test/src", "main.c", "main.o"},
 		{"cd with flags", "cd lib && gcc -c utils.c -o utils.o -I../include -Wall", "/test/lib", "utils.c", "utils.o"},
@@ -423,8 +421,8 @@ func TestParseCompileCommandWithPrefix(t *testing.T) {
 	p.dirStack = append(p.dirStack, "/project/build")
 
 	tests := []struct {
-		name          string
-		line          string
+		name           string
+		line           string
 		expectCompiler string
 		expectSource   string
 	}{

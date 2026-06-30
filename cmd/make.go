@@ -3,13 +3,14 @@ package cmd
 import (
 	"fmt"
 	"os/exec"
-	"strings"
+
+	"github.com/gerryqd/yacd/types"
 )
 
 // ExecuteMakeCommand executes a make command with -Bnkw flags
 func ExecuteMakeCommand(makeCmd string) (*exec.Cmd, error) {
-	// Split the command into parts
-	parts := strings.Fields(makeCmd)
+	// Split the command into parts, honoring quotes and escapes
+	parts := types.SplitCommandLine(makeCmd)
 	if len(parts) == 0 {
 		return nil, fmt.Errorf("empty make command")
 	}

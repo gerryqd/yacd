@@ -60,7 +60,7 @@ func TestPrepareOptions(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			options, err := PrepareOptions(tt.inputFile, tt.outputFile, tt.makeCommand,
-				tt.baseDir, tt.useRelativePaths, tt.verbose, false)
+				tt.baseDir, tt.useRelativePaths, tt.verbose, false, false, false)
 			if err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
@@ -72,7 +72,7 @@ func TestPrepareOptions(t *testing.T) {
 }
 
 func TestPrepareOptionsWithCurrentDirectory(t *testing.T) {
-	options, err := PrepareOptions("input.log", "output.json", "", "", true, false, false)
+	options, err := PrepareOptions("input.log", "output.json", "", "", true, false, false, false, false)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestPrepareOptionsWithCurrentDirectory(t *testing.T) {
 }
 
 func TestPrepareReaderValidation(t *testing.T) {
-	_, cleanup, err := PrepareReader(types.ParseOptions{
+	_, cleanup, err := PrepareReader(&types.ParseOptions{
 		InputFile: "/non/existent/file.log",
 	}, false)
 	if err == nil || !strings.Contains(err.Error(), "file does not exist") {

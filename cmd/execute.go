@@ -45,7 +45,7 @@ func ExecuteGeneration(options *types.ParseOptions, reader io.Reader) error {
 }
 
 // PrepareReader prepares the input reader based on options
-func PrepareReader(options types.ParseOptions, stdinHasData bool) (io.Reader, func(), error) {
+func PrepareReader(options *types.ParseOptions, stdinHasData bool) (io.Reader, func(), error) {
 	var reader io.Reader
 	var cleanup func()
 
@@ -70,7 +70,11 @@ func PrepareReader(options types.ParseOptions, stdinHasData bool) (io.Reader, fu
 
 		reader = stdout
 		cleanup = func() {
-			cmd.Wait()
+			// A non-zero exit status is common for `make -Bnkw` dry runs, so it
+			// is reported as a verbose warning rather than treated as fatal.
+			if waitErr := cmd.Wait(); waitErr != nil && options.Verbose {
+				fmt.Fprintf(os.Stderr, "Warning: make command exited with error: %v\n", waitErr)
+			}
 		}
 	} else if stdinHasData {
 		if options.Verbose {
@@ -99,7 +103,7 @@ func PrepareReader(options types.ParseOptions, stdinHasData bool) (io.Reader, fu
 
 // PrepareOptions prepares and validates parse options
 func PrepareOptions(inputFile, outputFile, makeCommand, baseDir string,
-	useRelativePaths, verbose, addSysroot bool) (types.ParseOptions, error) {
+	useRelativePaths, verbose, addSysroot, useArguments, dedup bool) (types.ParseOptions, error) {
 
 	if useRelativePaths && baseDir == "" {
 		baseDir = filepath.Dir(outputFile)
@@ -107,7 +111,7 @@ func PrepareOptions(inputFile, outputFile, makeCommand, baseDir string,
 			var err error
 			baseDir, err = filepath.Abs(".")
 			if err != nil {
-				return types.ParseOptions{}, fmt.Errorf("failed to get current working directory")
+				return types.ParseOptions{}, fmt.Errorf("failed to get current working directory: %w", err)
 			}
 		}
 	}
@@ -120,6 +124,8 @@ func PrepareOptions(inputFile, outputFile, makeCommand, baseDir string,
 		BaseDir:          baseDir,
 		Verbose:          verbose,
 		AddSysroot:       addSysroot,
+		UseArguments:     useArguments,
+		Deduplicate:      dedup,
 	}
 
 	return options, nil

@@ -66,3 +66,105 @@ func TestParseCrossCompilerCommand(t *testing.T) {
 		t.Errorf("CompilationEntry.File = %s, expected %s", compilationEntry.File, expectedSource)
 	}
 }
+
+func TestParseDollarParenSubstitution(t *testing.T) {
+	p, err := NewParser(types.ParseOptions{})
+	if err != nil {
+		t.Fatalf("Error creating parser: %v", err)
+	}
+
+	// gcc with $(...) command substitution
+	input := `gcc -I$(shell echo '/usr/include') -c main.c -o main.o`
+	entries, err := p.ParseMakeLog(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Error parsing: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].SourceFile != "main.c" {
+		t.Errorf("SourceFile = %s, expected main.c", entries[0].SourceFile)
+	}
+}
+
+func TestParseBacktickSubstitution(t *testing.T) {
+	p, err := NewParser(types.ParseOptions{})
+	if err != nil {
+		t.Fatalf("Error creating parser: %v", err)
+	}
+
+	input := "gcc -I`echo '/opt/include'` -c main.c -o main.o"
+	entries, err := p.ParseMakeLog(strings.NewReader(input))
+	if err != nil {
+		t.Fatalf("Error parsing: %v", err)
+	}
+
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+	if entries[0].SourceFile != "main.c" {
+		t.Errorf("SourceFile = %s, expected main.c", entries[0].SourceFile)
+	}
+}
+
+func TestParseInvalidCompiler(t *testing.T) {
+	p, err := NewParser(types.ParseOptions{})
+	if err != nil {
+		t.Fatalf("Error creating parser: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		line string
+	}{
+		{"Source file named gcc", "echo gcc"},
+		{"Tab file", "lex.tab.c -o output"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := p.parseCompileCommand(tt.line)
+			_ = result // just ensure no panic
+		})
+	}
+}
+
+func TestParseMakeLogWithLinkCommand(t *testing.T) {
+	p, err := NewParser(types.ParseOptions{BaseDir: "/project"})
+	if err != nil {
+		t.Fatalf("Error creating parser: %v", err)
+	}
+
+	makeLog := `make: Entering directory '/home/user/project'
+gcc -c -Wall main.c -o main.o
+gcc main.o util.o -o program
+make: Leaving directory '/home/user/project'`
+
+	entries, err := p.ParseMakeLog(strings.NewReader(makeLog))
+	if err != nil {
+		t.Fatalf("ParseMakeLog failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry (link command has no source), got %d", len(entries))
+	}
+}
+
+func TestParseMakeLogWithDollarParenEcho(t *testing.T) {
+	p, err := NewParser(types.ParseOptions{BaseDir: "/project"})
+	if err != nil {
+		t.Fatalf("Error creating parser: %v", err)
+	}
+
+	makeLog := `make: Entering directory '/home/user/project'
+gcc -c -I$(shell echo '/opt/include') main.c -o main.o
+make: Leaving directory '/home/user/project'`
+
+	entries, err := p.ParseMakeLog(strings.NewReader(makeLog))
+	if err != nil {
+		t.Fatalf("ParseMakeLog failed: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("Expected 1 entry, got %d", len(entries))
+	}
+}

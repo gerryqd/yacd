@@ -61,4 +61,59 @@ type ParseOptions struct {
 
 	// Whether to add compiler sysroot include path to commands
 	AddSysroot bool
+
+	// Whether to output arguments array format (preferred by clangd)
+	UseArguments bool
+
+	// Whether to deduplicate entries
+	Deduplicate bool
+}
+
+// SplitCommandLine splits a command line string into individual arguments,
+// handling single quotes, double quotes, and escape characters.
+func SplitCommandLine(line string) []string {
+	var args []string
+	var current []rune
+	inSingleQuotes := false
+	inDoubleQuotes := false
+	escaped := false
+
+	for _, char := range line {
+		switch {
+		case escaped:
+			current = append(current, char)
+			escaped = false
+		case char == '\\':
+			if inSingleQuotes {
+				current = append(current, char)
+			} else {
+				escaped = true
+			}
+		case char == '\'':
+			if inDoubleQuotes {
+				current = append(current, char)
+			} else {
+				inSingleQuotes = !inSingleQuotes
+			}
+		case char == '"':
+			if inSingleQuotes {
+				current = append(current, char)
+			} else {
+				inDoubleQuotes = !inDoubleQuotes
+			}
+		case char == ' ' && !inSingleQuotes && !inDoubleQuotes:
+			if len(current) > 0 {
+				args = append(args, string(current))
+				current = current[:0]
+			}
+		default:
+			current = append(current, char)
+		}
+	}
+
+	if len(current) > 0 {
+		args = append(args, string(current))
+	}
+
+	return args
 }

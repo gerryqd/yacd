@@ -44,3 +44,22 @@ func TestExecuteMakeCommand(t *testing.T) {
 		})
 	}
 }
+
+func TestExecuteMakeCommandQuotedArgs(t *testing.T) {
+	// Quoted arguments must be preserved as a single argument. Using
+	// strings.Fields here would incorrectly split "CFLAGS=-O2 -g".
+	cmd, err := ExecuteMakeCommand(`make CFLAGS="-O2 -g"`)
+	if err != nil {
+		t.Fatalf("Unexpected error: %v", err)
+	}
+	if cmd == nil {
+		t.Fatal("Returned nil command")
+	}
+	// Args layout: [make, -Bnkw, CFLAGS=-O2 -g]
+	if len(cmd.Args) != 3 {
+		t.Fatalf("Expected 3 args, got %d: %v", len(cmd.Args), cmd.Args)
+	}
+	if cmd.Args[2] != "CFLAGS=-O2 -g" {
+		t.Errorf("Expected quoted arg preserved, got %q in %v", cmd.Args[2], cmd.Args)
+	}
+}

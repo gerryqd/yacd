@@ -17,8 +17,13 @@ var (
 	makeCommand      string
 	showVersion      bool
 	addSysroot       bool
-	GitCommit        string
+	useArguments     bool
+	dedup            bool
 )
+
+// GitCommit holds the Git commit hash injected at build time via ldflags.
+// Defaults to "unknown" when not set.
+var GitCommit = "unknown"
 
 // Version information
 const (
@@ -70,6 +75,8 @@ func init() {
 	rootCmd.Flags().StringVarP(&makeCommand, "dry-run", "n", "", "Execute make command with -Bnkw flags and process output directly")
 	rootCmd.Flags().BoolVarP(&showVersion, "version", "V", false, "Print version information and exit")
 	rootCmd.Flags().BoolVar(&addSysroot, "add-sysroot", false, "Add compiler sysroot include path to commands")
+	rootCmd.Flags().BoolVar(&useArguments, "arguments", false, "Output arguments array format (preferred by clangd)")
+	rootCmd.Flags().BoolVar(&dedup, "dedup", false, "Deduplicate entries by source file")
 
 	// Mark mutually exclusive parameters
 	rootCmd.MarkFlagsMutuallyExclusive("input", "dry-run")
@@ -109,13 +116,13 @@ func runGenerate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Prepare options
-	options, err := PrepareOptions(inputFile, outputFile, makeCommand, baseDir, useRelativePaths, verbose, addSysroot)
+	options, err := PrepareOptions(inputFile, outputFile, makeCommand, baseDir, useRelativePaths, verbose, addSysroot, useArguments, dedup)
 	if err != nil {
 		return err
 	}
 
 	// Prepare reader
-	reader, cleanup, err := PrepareReader(options, stdinHasData)
+	reader, cleanup, err := PrepareReader(&options, stdinHasData)
 	if err != nil {
 		return err
 	}
