@@ -16,6 +16,9 @@ func TestSplitCommandLine(t *testing.T) {
 		{"Single word", "gcc", []string{"gcc"}},
 		{"Extra spaces", "  gcc   -c   main.c  ", []string{"gcc", "-c", "main.c"}},
 		{"Backslash in single quotes", `gcc -DPATH='C:\path' -c main.c`, []string{"gcc", `-DPATH=C:\path`, "-c", "main.c"}},
+		{"Windows drive path", `C:\mingw\bin\gcc.exe -c foo.c`, []string{`C:\mingw\bin\gcc.exe`, "-c", "foo.c"}},
+		{"Windows path with quotes", `gcc -I"C:\Program Files\include" -c foo.c`, []string{"gcc", `-IC:\Program Files\include`, "-c", "foo.c"}},
+		{"Escaped space still works", `gcc -c my\ file.c`, []string{"gcc", "-c", "my file.c"}},
 	}
 
 	for _, tt := range tests {

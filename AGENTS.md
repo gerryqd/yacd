@@ -35,7 +35,7 @@ This file provides guidance to agents when working with code in this repository.
 - `ParseOptions` should be passed as pointer for consistency
 - Generator supports both `command` (string) and `arguments` (array) output formats
 - Generator supports deduplication via `Deduplicate` option
-- Generator checks source file existence in parallel (up to 16 goroutines)
+- Generator checks source file existence sequentially in `checkMissingFiles`
 
 ## Testing Specifics
 

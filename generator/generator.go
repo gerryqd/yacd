@@ -127,7 +127,7 @@ func GenerateCompilationDatabase(entries []types.MakeLogEntry, options *types.Pa
 
 		compilationEntry := types.CompilationEntry{
 			Directory: workingDir,
-			Command:   strings.Join(commandArgs, " "),
+			Command:   quoteCommand(commandArgs),
 			File:      sourceFile,
 			Output:    outputFile,
 		}
@@ -161,11 +161,12 @@ func GenerateCompilationDatabase(entries []types.MakeLogEntry, options *types.Pa
 }
 
 // deduplicateEntries removes duplicate entries based on (WorkingDir, SourceFile) key.
+// A NUL separator is used so that paths containing '|' cannot collide.
 func deduplicateEntries(entries []types.MakeLogEntry) []types.MakeLogEntry {
 	seen := make(map[string]struct{})
 	result := make([]types.MakeLogEntry, 0, len(entries))
 	for _, entry := range entries {
-		key := entry.WorkingDir + "|" + entry.SourceFile
+		key := entry.WorkingDir + "\x00" + entry.SourceFile
 		if _, ok := seen[key]; !ok {
 			seen[key] = struct{}{}
 			result = append(result, entry)
@@ -204,8 +205,13 @@ func addSysrootToArgs(args []string, compiler string, cache *SysrootCache) []str
 		return args
 	}
 
-	for _, arg := range args {
+	for i, arg := range args {
+		// Already present as a single "-I<path>" token.
 		if arg == includePath {
+			return args
+		}
+		// Present as a space-separated "-I <path>" pair.
+		if arg == "-I" && i+1 < len(args) && args[i+1] == includePath[2:] {
 			return args
 		}
 	}
@@ -217,35 +223,40 @@ func addSysrootToArgs(args []string, compiler string, cache *SysrootCache) []str
 	return result
 }
 
-// addSysrootIncludePath adds the sysroot include path to the command string.
+// addSysrootIncludePath adds the sysroot include path to a command string. It
+// splits the string, delegates the insertion to addSysrootToArgs, and re-quotes
+// the result so the command-string and arguments-array forms share a single
+// code path instead of duplicating the presence check and insertion logic.
 func addSysrootIncludePath(command string, compiler string, cache *SysrootCache) string {
-	includePath, err := getSysrootIncludePath(compiler, cache)
-	if err != nil {
-		fmt.Printf("Warning: Could not get valid sysroot for compiler %s: %v\n", compiler, err)
-		return command
-	}
-	if includePath == "" {
-		return command
-	}
-
-	// Use proper command splitting to handle quoted arguments
 	parts := types.SplitCommandLine(command)
-	for i, part := range parts {
-		// Already present as a single "-I<path>" token.
-		if part == includePath {
-			return command
-		}
-		// Present as a space-separated "-I <path>" pair.
-		if part == "-I" && i+1 < len(parts) && parts[i+1] == includePath[2:] {
-			return command
+	return quoteCommand(addSysrootToArgs(parts, compiler, cache))
+}
+
+// quoteShellArg wraps an argument in single quotes when it contains characters
+// that would otherwise be split or interpreted by a shell when the command is
+// reconstructed as a plain string.
+func quoteShellArg(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	for _, ch := range arg {
+		switch ch {
+		case ' ', '\t', '\n', '\r', '\'', '"', '\\', '$', '`':
+			return "'" + strings.ReplaceAll(arg, "'", `'\''`) + "'"
 		}
 	}
+	return arg
+}
 
-	if len(parts) < 2 {
-		return command + " " + includePath
+// quoteCommand joins command arguments into a shell command string, quoting
+// arguments that contain shell-special characters so the string can be parsed
+// back into the same arguments.
+func quoteCommand(args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = quoteShellArg(arg)
 	}
-
-	return parts[0] + " " + includePath + " " + strings.Join(parts[1:], " ")
+	return strings.Join(quoted, " ")
 }
 
 // getRelativePath converts an absolute path to a relative path based on baseDir
@@ -284,13 +295,28 @@ func WriteCompilationDatabase(compilationDB []types.CompilationEntry, outputFile
 	}
 	data = append(data, '\n')
 
-	tmpFile := outputFile + ".tmp"
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
-		return fmt.Errorf("failed to write file %s: %w", tmpFile, err)
+	// Use a unique temporary file in the target directory so concurrent runs
+	// writing to the same output do not clobber each other's temp files.
+	dir := filepath.Dir(outputFile)
+	tmpFile, err := os.CreateTemp(dir, filepath.Base(outputFile)+".tmp*")
+	if err != nil {
+		return fmt.Errorf("failed to create temporary file in %s: %w", dir, err)
+	}
+	tmpName := tmpFile.Name()
+	defer os.Remove(tmpName)
+
+	if _, err := tmpFile.Write(data); err != nil {
+		tmpFile.Close()
+		return fmt.Errorf("failed to write file %s: %w", tmpName, err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("failed to close file %s: %w", tmpName, err)
+	}
+	if err := os.Chmod(tmpName, 0644); err != nil {
+		return fmt.Errorf("failed to set permissions on file %s: %w", tmpName, err)
 	}
 
-	if err := os.Rename(tmpFile, outputFile); err != nil {
-		os.Remove(tmpFile)
+	if err := os.Rename(tmpName, outputFile); err != nil {
 		return fmt.Errorf("failed to rename to file %s: %w", outputFile, err)
 	}
 

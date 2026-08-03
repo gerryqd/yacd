@@ -121,25 +121,31 @@ func TestSplitCommandLine(t *testing.T) {
 	}
 }
 
-func TestExtractFiles(t *testing.T) {
+func TestExtractSourceFiles(t *testing.T) {
 	p := newTestParser(t)
 
 	tests := []struct {
-		name   string
-		args   []string
-		source string
-		output string
+		name    string
+		args    []string
+		sources []string
+		output  string
 	}{
-		{"C file", []string{"gcc", "-c", "main.c", "-o", "main.o"}, "main.c", "main.o"},
-		{"No output", []string{"gcc", "-c", "main.c"}, "main.c", ""},
-		{"Complex path", []string{"gcc", "-c", "src/utils/helper.c", "-o", "build/helper.o"}, "src/utils/helper.c", "build/helper.o"},
+		{"C file", []string{"gcc", "-c", "main.c", "-o", "main.o"}, []string{"main.c"}, "main.o"},
+		{"No output", []string{"gcc", "-c", "main.c"}, []string{"main.c"}, ""},
+		{"Complex path", []string{"gcc", "-c", "src/utils/helper.c", "-o", "build/helper.o"}, []string{"src/utils/helper.c"}, "build/helper.o"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			src, out := p.extractFiles(tt.args)
-			if src != tt.source {
-				t.Errorf("Source = %q, expected %q", src, tt.source)
+			sources, out := p.extractSourceFiles(tt.args)
+			if len(sources) != len(tt.sources) {
+				t.Errorf("Sources = %v, expected %v", sources, tt.sources)
+				return
+			}
+			for i, src := range sources {
+				if src != tt.sources[i] {
+					t.Errorf("Source[%d] = %q, expected %q", i, src, tt.sources[i])
+				}
 			}
 			if out != tt.output {
 				t.Errorf("Output = %q, expected %q", out, tt.output)

@@ -25,12 +25,26 @@ const (
 	// Backtick command substitution pattern
 	backtickPattern = "`([^`]*)`"
 
-	// Echo patterns for extracting paths
+	// Echo patterns for extracting paths. The unquoted pattern skips echo
+	// options such as -n or -e before capturing the path argument.
 	echoWithQuotesPattern    = `echo\s+['"]([^'"]+)['"]`
-	echoWithoutQuotesPattern = `echo\s+([^\s]+)`
+	echoWithoutQuotesPattern = `echo\s+(?:-[a-zA-Z]+\s+)*([^\s]+)`
 
-	// Shell redirection patterns
-	redirectionPatterns = `\s+2>&1|\s+>&1|\s+>\S+|\s+>>\S+|\s+<\S+|\s+2>\S+|\s+2>>\S+|\s+\d+>&\d+|\s+\d+>\S+|\s+\d+>>\S+`
+	// Echo line pattern used to skip echo commands that merely display a
+	// command instead of executing it. Handles multiple spaces after "echo"
+	// and an optional leading '@' (make silent prefix).
+	echoLinePattern = `^\s*@?echo(\s+|$)`
+
+	// Shell redirection patterns. Multi-character operators (>>, 2>>, n>&m)
+	// must be listed before their single-character prefixes so an operand
+	// following a space (e.g. ">> out.log") is removed together with the
+	// operator instead of leaking. Quoted segments are protected before
+	// removal so redirects inside quotes survive.
+	redirectionPatterns = `\s+2>&1|\s+\d+>&\s*\d+|\s+>&\s*\d+|\s+>>\s*\S+|\s+2>>\s*\S+|\s+\d+>>\s*\S+|\s+2>\s*\S+|\s+\d+>\s*\S+|\s+>\s*\S+|\s+<\s*\S+`
+
+	// Quoted segment pattern for protecting quoted content from redirection
+	// removal. Handles escaped quotes inside double-quoted strings.
+	quotedSegmentPattern = `"[^"\\]*(?:\\.[^"\\]*)*"|'[^']*'`
 )
 
 // Pre-compiled regexes for redirection removal
@@ -44,19 +58,23 @@ func init() {
 	backtickRegex = regexp.MustCompile(backtickPattern)
 	echoQuotedRegex = regexp.MustCompile(echoWithQuotesPattern)
 	echoUnquotedRegex = regexp.MustCompile(echoWithoutQuotesPattern)
+	echoLineRegex = regexp.MustCompile(echoLinePattern)
+	quotedSegmentRegex = regexp.MustCompile(quotedSegmentPattern)
 	dollarParenRegex = regexp.MustCompile(`\$\(([^)]*)\)`)
 }
 
 var (
-	redirectionRegex  *regexp.Regexp
-	compilerRegex     *regexp.Regexp
-	makeDirEnterRegex *regexp.Regexp
-	makeDirLeaveRegex *regexp.Regexp
-	cdChainRegex      *regexp.Regexp
-	backtickRegex     *regexp.Regexp
-	echoQuotedRegex   *regexp.Regexp
-	echoUnquotedRegex *regexp.Regexp
-	dollarParenRegex  *regexp.Regexp
+	redirectionRegex   *regexp.Regexp
+	compilerRegex      *regexp.Regexp
+	makeDirEnterRegex  *regexp.Regexp
+	makeDirLeaveRegex  *regexp.Regexp
+	cdChainRegex       *regexp.Regexp
+	backtickRegex      *regexp.Regexp
+	echoQuotedRegex    *regexp.Regexp
+	echoUnquotedRegex  *regexp.Regexp
+	echoLineRegex      *regexp.Regexp
+	quotedSegmentRegex *regexp.Regexp
+	dollarParenRegex   *regexp.Regexp
 )
 
 // Parser parser struct
@@ -143,8 +161,10 @@ func (p *Parser) handleDirectoryChange(line string) bool {
 
 // parseCompileCommand parses compilation commands
 func (p *Parser) parseCompileCommand(line string) *types.MakeLogEntry {
-	// Skip echo commands that might contain compiler names but are not actual compilation commands
-	if strings.HasPrefix(strings.TrimSpace(line), "echo ") {
+	// Skip echo commands that might contain compiler names but are not actual
+	// compilation commands. Uses a regex so multiple spaces after "echo" are
+	// handled correctly.
+	if echoLineRegex.MatchString(line) {
 		return nil
 	}
 
@@ -227,10 +247,19 @@ func (p *Parser) parseCompileCommandArgs(line string) *types.MakeLogEntry {
 	}
 
 	// Find source file and output file
-	sourceFile, outputFile := p.extractFiles(args)
-	if sourceFile == "" {
+	sources, outputFile := p.extractSourceFiles(args)
+	if len(sources) == 0 {
 		return nil
 	}
+	if len(sources) > 1 {
+		// A single compilation entry cannot represent multiple source files.
+		// Skip such lines to avoid generating misleading entries.
+		if p.options.Verbose {
+			fmt.Printf("Skipping line with multiple source files: %v\n", sources)
+		}
+		return nil
+	}
+	sourceFile := sources[0]
 
 	return &types.MakeLogEntry{
 		Compiler:   compiler,
@@ -309,8 +338,10 @@ func (p *Parser) resolveRelativePath(baseDir, relativePath string) string {
 	return filepath.Join(baseDir, relativePath)
 }
 
-// extractFiles extracts source file and output file from arguments
-func (p *Parser) extractFiles(args []string) (sourceFile, outputFile string) {
+// extractSourceFiles extracts all source files and the output file from arguments
+func (p *Parser) extractSourceFiles(args []string) ([]string, string) {
+	var sources []string
+	outputFile := ""
 	for i, arg := range args {
 		// Find output file (-o parameter)
 		if arg == "-o" && i+1 < len(args) {
@@ -318,13 +349,13 @@ func (p *Parser) extractFiles(args []string) (sourceFile, outputFile string) {
 			continue
 		}
 
-		// Find source file (usually the last .c or .cpp file)
+		// Find source files
 		if p.isSourceFile(arg) {
-			sourceFile = arg
+			sources = append(sources, arg)
 		}
 	}
 
-	return sourceFile, outputFile
+	return sources, outputFile
 }
 
 // isSourceFile determines if it is a source file
@@ -345,10 +376,43 @@ func (p *Parser) removeRedirectionOperators(line string) string {
 	// Process command substitutions to extract path information
 	cleanLine := p.processCommandSubstitution(line)
 
+	// Protect quoted segments so redirects inside quotes are never removed
+	cleanLine, quotedSegments := protectQuotedSegments(cleanLine)
+
 	// Remove all redirection patterns using pre-compiled regex
 	cleanLine = redirectionRegex.ReplaceAllString(cleanLine, "")
 
+	// Restore quoted segments
+	cleanLine = restoreQuotedSegments(cleanLine, quotedSegments)
+
 	return strings.TrimSpace(cleanLine)
+}
+
+// protectQuotedSegments replaces quoted substrings with placeholder markers so
+// that redirection removal never touches content inside quotes. It returns the
+// transformed line and the original quoted segments for later restoration.
+func protectQuotedSegments(line string) (string, []string) {
+	var segments []string
+	transformed := quotedSegmentRegex.ReplaceAllStringFunc(line, func(match string) string {
+		idx := len(segments)
+		segments = append(segments, match)
+		return fmt.Sprintf("\x01%d\x01", idx)
+	})
+	return transformed, segments
+}
+
+// restoreQuotedSegments replaces placeholder markers with the original quoted
+// segments in a single left-to-right pass using a Replacer, instead of rescanning
+// the whole line once per segment.
+func restoreQuotedSegments(line string, segments []string) string {
+	if len(segments) == 0 {
+		return line
+	}
+	pairs := make([]string, 0, len(segments)*2)
+	for i, segment := range segments {
+		pairs = append(pairs, fmt.Sprintf("\x01%d\x01", i), segment)
+	}
+	return strings.NewReplacer(pairs...).Replace(line)
 }
 
 // processCommandSubstitution handles both $(...) and backtick `...` command
@@ -424,9 +488,11 @@ func (p *Parser) extractPathFromCommand(command string) string {
 		return matches[1]
 	}
 
-	// Pattern to match "echo path" (without quotes)
+	// Pattern to match "echo path" (without quotes), skipping echo options
+	// such as -n or -e. A capture that still looks like an option (e.g. a bare
+	// "echo -n") is not a path.
 	matches = echoUnquotedRegex.FindStringSubmatch(command)
-	if len(matches) > 1 {
+	if len(matches) > 1 && !strings.HasPrefix(matches[1], "-") {
 		return matches[1]
 	}
 

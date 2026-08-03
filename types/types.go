@@ -86,6 +86,10 @@ func SplitCommandLine(line string) []string {
 		case char == '\\':
 			if inSingleQuotes {
 				current = append(current, char)
+			} else if isWindowsDrivePath(current) {
+				// Windows drive-letter paths use backslash as a separator, not
+				// an escape character (e.g. C:\mingw\bin\gcc.exe).
+				current = append(current, char)
 			} else {
 				escaped = true
 			}
@@ -116,4 +120,17 @@ func SplitCommandLine(line string) []string {
 	}
 
 	return args
+}
+
+// isWindowsDrivePath reports whether the token built so far contains a
+// Windows drive-letter prefix (e.g. "C:\" or "-IC:\"), in which case
+// backslashes are path separators rather than escape characters.
+func isWindowsDrivePath(token []rune) bool {
+	for i := 0; i+1 < len(token); i++ {
+		c := token[i]
+		if token[i+1] == ':' && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+			return true
+		}
+	}
+	return false
 }
